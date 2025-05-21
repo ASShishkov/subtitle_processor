@@ -1,0 +1,25 @@
+# Python compiled files
+*.pyc
+__pycache__/
+*.pyo
+*.pyd
+
+# Virtual environments
+venv/
+env/
+.venv/
+ENV/
+
+# IDE files
+.idea/
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Output files
+output/
+*.log
+
+# Optional: ignore config.ini if it contains sensitive data
+# config.ini
