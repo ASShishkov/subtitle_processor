@@ -3,7 +3,8 @@ from tkinter import ttk, filedialog, messagebox
 import configparser
 import threading
 import os
-from subtitle_processor import search_phrases, calculate_timestamps, analyze_duplicates
+import logging
+from subtitle_processor import analyze_phrases, generate_excerpts, generate_timestamps
 from utils import parse_srt
 
 
@@ -14,6 +15,7 @@ class SubtitleFilterApp:
         self.config = configparser.ConfigParser()
         self.is_running = False
         self.setup_gui()
+        self.setup_logging()
         self.load_config()
 
     def setup_gui(self):
@@ -40,10 +42,10 @@ class SubtitleFilterApp:
         tk.Scale(self.root, from_=50, to=100, resolution=5, orient=tk.HORIZONTAL,
                  variable=self.match_threshold).grid(row=3, column=1, padx=5, pady=5)
 
-        # Чекбоксы
-        self.save_paths = tk.BooleanVar()
+        # Чекбоксы (по умолчанию включены)
+        self.save_paths = tk.BooleanVar(value=True)
         tk.Checkbutton(self.root, text="Сохранить пути", variable=self.save_paths).grid(row=4, column=0, padx=5, pady=5)
-        self.enable_logging = tk.BooleanVar()
+        self.enable_logging = tk.BooleanVar(value=True)
         tk.Checkbutton(self.root, text="Включить логирование", variable=self.enable_logging).grid(row=4, column=1,
                                                                                                   padx=5, pady=5)
 
@@ -79,6 +81,14 @@ class SubtitleFilterApp:
         self.tree.column("Таймкоды/Текст", width=150)
         self.tree.column("Выбор", width=50)
 
+    def setup_logging(self):
+        """Настраивает логирование."""
+        self.logger = logging.getLogger('SubtitleFilterApp')
+        self.logger.setLevel(logging.INFO)
+        handler = logging.FileHandler(os.path.join(self.output_path.get() or 'output', 'log.txt'), encoding='utf-8')
+        handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+        self.logger.addHandler(handler)
+
     def browse_subtitles(self):
         path = filedialog.askopenfilename(filetypes=[("SRT files", "*.srt")])
         if path:
@@ -96,7 +106,7 @@ class SubtitleFilterApp:
 
     def load_config(self):
         if os.path.exists("config.ini"):
-            self.config.read("config.ini")
+            self.config.read("config.ini", encoding='utf-8')
             if "Paths" in self.config:
                 self.subtitles_path.set(self.config["Paths"].get("subtitles", ""))
                 self.phrases_path.set(self.config["Paths"].get("phrases", ""))
@@ -123,9 +133,79 @@ class SubtitleFilterApp:
                 phrases = [line.strip() for line in f if line.strip()]
             if not subs or not phrases:
                 raise ValueError("Файлы пусты или некорректны")
-            self.root.after(0, lambda: self.status_label.config(text="Все файлы корректны", fg="green"))
+
+            threshold = self.match_threshold.get() / 100.0
+            analysis = analyze_phrases(subs, phrases, threshold)
+
+            # Формируем отчет
+            report_path = os.path.join(self.output_path.get(), "analysis_report.txt")
+            with open(report_path, 'w', encoding='utf-8') as f:
+                f.write("--- Ненайденные фразы ---\n")
+                if analysis['not_found']:
+                    f.write(f"Количество ненайденных фраз: {len(analysis['not_found'])}\n")
+                    for phrase in analysis['not_found']:
+                        f.write(f"Фраза: {phrase}\n")
+                else:
+                    f.write("Ненайденных фраз нет\n")
+                f.write("-----------------------\n")
+
+                f.write("--- Частично совпадающие фразы ---\n")
+                if analysis['partial_matches']:
+                    for match in analysis['partial_matches']:
+                        f.write(f"Фраза: {match['phrase']} (совпадение: {match['similarity'] * 100:.1f}%)\n")
+                        f.write(f"Найдено в блоке {match['subtitle_index']}: {match['subtitle_text']}\n")
+                else:
+                    f.write("Частичных совпадений нет\n")
+                f.write("-----------------------\n")
+
+                f.write("--- Дублирующиеся фразы (в phrases.txt) ---\n")
+                if analysis['phrase_duplicates']:
+                    for phrase, count in analysis['phrase_duplicates'].items():
+                        f.write(f"Фраза: {phrase} (встречается {count} раз)\n")
+                else:
+                    f.write("Дублей среди фраз нет\n")
+                f.write("-----------------------\n")
+
+                f.write("--- Дублирующиеся фразы (в субтитрах) ---\n")
+                if analysis['subtitle_duplicates']:
+                    for text, indices in analysis['subtitle_duplicates'].items():
+                        f.write(f"Фраза: {text} (встречается {len(indices) + 1} раз)\n")
+                        f.write(f"Блоки: {', '.join(str(idx) for idx, _ in indices)}\n")
+                else:
+                    f.write("Дублей в субтитрах нет\n")
+                f.write("-----------------------\n")
+
+            # Обновляем таблицу дублей
+            for item in self.tree.get_children():
+                self.tree.delete(item)
+
+            for phrase, count in analysis['phrase_duplicates'].items():
+                self.tree.insert("", "end", values=(phrase, "Дубль фразы", f"Кол-во: {count}", "", ""))
+
+            for text, indices in analysis['subtitle_duplicates'].items():
+                blocks = ', '.join(str(idx) for idx, _ in indices)
+                self.tree.insert("", "end", values=(text, "Дубль субтитра", blocks, "", ""))
+
+            # Обновляем статус
+            if not (analysis['not_found'] or analysis['partial_matches'] or analysis['phrase_duplicates'] or analysis[
+                'subtitle_duplicates']):
+                self.status_label.config(
+                    text=f"Проблем нет. Фраз: {len(phrases)}, потенциальных отрывков: {len(analysis['results'])}",
+                    fg="green")
+            else:
+                issues = sum(
+                    [len(analysis['not_found']), len(analysis['partial_matches']), len(analysis['phrase_duplicates']),
+                     len(analysis['subtitle_duplicates'])])
+                self.status_label.config(
+                    text=f"Найдено проблем: {issues}. Фраз: {len(phrases)}, потенциальных отрывков: {len(analysis['results'])}",
+                    fg="red")
+
+            if self.enable_logging.get():
+                self.logger.info("Проверка завершена")
         except Exception as e:
             self.root.after(0, lambda: self.status_label.config(text=f"Ошибка: {e}", fg="red"))
+            if self.enable_logging.get():
+                self.logger.error(f"Ошибка при проверке: {e}")
 
     def find_excerpts(self):
         if not self.subtitles_path.get() or not self.phrases_path.get():
@@ -141,19 +221,21 @@ class SubtitleFilterApp:
             with open(self.phrases_path.get(), 'r', encoding='utf-8') as f:
                 phrases = [line.strip() for line in f if line.strip()]
             threshold = self.match_threshold.get() / 100.0
-            self.progress['maximum'] = len(subs)
-            results = search_phrases(subs, phrases, threshold)
-            for i, _ in enumerate(subs):
+            self.progress['maximum'] = len(phrases)
+            output_path = os.path.join(self.output_path.get(), "filtered_subtitles.srt")
+            generate_excerpts(subs, phrases, threshold, output_path)
+            for i in range(len(phrases)):
                 if not self.is_running:
                     raise InterruptedError("Процесс остановлен")
                 self.progress['value'] = i + 1
                 self.root.update_idletasks()
-            with open(os.path.join(self.output_path.get(), "results.txt"), 'w', encoding='utf-8') as f:
-                for res in results:
-                    f.write(f"Блок {res['subtitle'].index}: {res['phrase']} (совпадение: {res['similarity']:.2f})\n")
             self.root.after(0, lambda: self.status_label.config(text="Отрывки найдены", fg="green"))
+            if self.enable_logging.get():
+                self.logger.info("Отрывки найдены")
         except Exception as e:
             self.root.after(0, lambda: self.status_label.config(text=f"Ошибка: {e}", fg="red"))
+            if self.enable_logging.get():
+                self.logger.error(f"Ошибка при поиске отрывков: {e}")
         finally:
             self.is_running = False
             self.save_config()
@@ -172,74 +254,49 @@ class SubtitleFilterApp:
             with open(self.phrases_path.get(), 'r', encoding='utf-8') as f:
                 phrases = [line.strip() for line in f if line.strip()]
             threshold = self.match_threshold.get() / 100.0
-            results = search_phrases(subs, phrases, threshold)
-            self.progress['maximum'] = len(results)
-            timestamps = []
-            for i, res in enumerate(results):
+            self.progress['maximum'] = len(phrases)
+            output_path = os.path.join(self.output_path.get(), "precise_timestamps.srt")
+            generate_timestamps(subs, phrases, threshold, output_path)
+            for i in range(len(phrases)):
                 if not self.is_running:
                     raise InterruptedError("Процесс остановлен")
-                start, end = calculate_timestamps(res['subtitle'], res['phrase'])
-                timestamps.append((res['phrase'], start, end))
                 self.progress['value'] = i + 1
                 self.root.update_idletasks()
-            with open(os.path.join(self.output_path.get(), "timestamps.txt"), 'w', encoding='utf-8') as f:
-                for phrase, start, end in timestamps:
-                    f.write(f"{phrase}: {start} - {end}\n")
             self.root.after(0, lambda: self.status_label.config(text="Таймкоды получены", fg="green"))
+            if self.enable_logging.get():
+                self.logger.info("Таймкоды получены")
         except Exception as e:
             self.root.after(0, lambda: self.status_label.config(text=f"Ошибка: {e}", fg="red"))
+            if self.enable_logging.get():
+                self.logger.error(f"Ошибка при получении таймкодов: {e}")
         finally:
             self.is_running = False
             self.save_config()
 
     def show_report(self):
-        self.status_label.config(text="Анализ дублей...", fg="black")
-        threading.Thread(target=self._show_report_thread).start()
-
-    def _show_report_thread(self):
-        try:
-            subs = parse_srt(self.subtitles_path.get())
-            with open(self.phrases_path.get(), 'r', encoding='utf-8') as f:
-                phrases = [line.strip() for line in f if line.strip()]
-            duplicates = analyze_duplicates(subs, phrases)
-
-            # Очистка таблицы
-            for item in self.tree.get_children():
-                self.tree.delete(item)
-
-            # Заполнение таблицы дублями фраз
-            for phrase, count in duplicates['phrase_duplicates'].items():
-                self.tree.insert("", "end", values=(phrase, "Дубль фразы", f"Кол-во: {count}", "", ""))
-
-            # Заполнение таблицы дублями субтитров
-            for text, indices in duplicates['subtitle_duplicates'].items():
-                blocks = ', '.join(str(idx) for idx, _ in indices)
-                self.tree.insert("", "end", values=(text, "Дубль субтитра", blocks, "", ""))
-
-            report_path = os.path.join(self.output_path.get(), "analysis_report.txt")
-            with open(report_path, 'w', encoding='utf-8') as f:
-                f.write("Отчет по дублям:\n\nДубли фраз:\n")
-                for p, c in duplicates['phrase_duplicates'].items():
-                    f.write(f"{p}: {c} раз\n")
-                f.write("\nДубли субтитров:\n")
-                for t, idxs in duplicates['subtitle_duplicates'].items():
-                    f.write(f"{t}: блоки {', '.join(str(i) for i, _ in idxs)}\n")
-            self.root.after(0, lambda: os.startfile(report_path) if os.path.exists(report_path) else None)
-            self.root.after(0, lambda: self.status_label.config(text="Отчет готов", fg="green"))
-        except Exception as e:
-            self.root.after(0, lambda: self.status_label.config(text=f"Ошибка: {e}", fg="red"))
+        report_path = os.path.join(self.output_path.get(), "analysis_report.txt")
+        if os.path.exists(report_path):
+            os.startfile(report_path)  # Windows
+            self.status_label.config(text="Отчет открыт", fg="green")
+            if self.enable_logging.get():
+                self.logger.info("Отчет открыт")
+        else:
+            self.status_label.config(text="Отчёт не найден", fg="red")
+            if self.enable_logging.get():
+                self.logger.error("Отчет не найден")
 
     def clear_fields(self):
-        self.subtitles_path.set("")
-        self.phrases_path.set("")
-        self.output_path.set("")
         self.status_label.config(text="Поля очищены", fg="green")
         for item in self.tree.get_children():
             self.tree.delete(item)
+        if self.enable_logging.get():
+            self.logger.info("Таблица очищена")
 
     def stop_process(self):
         self.is_running = False
         self.status_label.config(text="Процесс прерван", fg="red")
+        if self.enable_logging.get():
+            self.logger.info("Процесс прерван")
 
 
 if __name__ == "__main__":

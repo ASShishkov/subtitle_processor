@@ -1,76 +1,87 @@
-from utils import parse_srt, normalize_text, find_matches
+from utils import parse_srt, normalize_text, find_matches, format_srt_entry, calculate_exact_timestamps
 
 
-def search_phrases(subtitles, phrases, threshold):
-    """Ищет фразы в субтитрах и возвращает совпадения."""
+def analyze_phrases(subtitles, phrases, threshold):
+    """Анализирует фразы, возвращает ненайденные, частичные совпадения и дубли."""
     results = []
-    for sub in subtitles:
-        sub_text = sub.text
-        for phrase in phrases:
-            similarity, matched_phrase = find_matches(sub_text, phrase, threshold)
-            if similarity > 0:
-                results.append({
-                    'subtitle': sub,
-                    'phrase': phrase,
-                    'similarity': similarity,
-                    'matched_text': matched_phrase
-                })
-    return results
-
-
-def calculate_timestamps(subtitle, phrase):
-    """Вычисляет точные таймкоды для фразы в субтитре."""
-    start_time = subtitle.start.to_time()
-    end_time = subtitle.end.to_time()
-    total_duration = (end_time - start_time).total_seconds()
-
-    # Нормализуем текст и фразу
-    norm_subtitle = normalize_text(subtitle.text)
-    norm_phrase = normalize_text(phrase)
-
-    # Находим позицию фразы в тексте субтитра
-    sub_words = norm_subtitle.split()
-    phrase_words = norm_phrase.split()
-    phrase_len = len(phrase_words)
-
-    for i in range(len(sub_words) - phrase_len + 1):
-        if ' '.join(sub_words[i:i + phrase_len]) == norm_phrase:
-            # Вычисляем пропорциональные таймкоды
-            start_ratio = i / len(sub_words)
-            end_ratio = (i + phrase_len) / len(sub_words)
-            phrase_start = start_time + (end_time - start_time) * start_ratio
-            phrase_end = start_time + (end_time - start_time) * end_ratio
-            return phrase_start, phrase_end
-    # Если точное совпадение не найдено, возвращаем границы субтитра
-    return start_time, end_time
-
-
-def analyze_duplicates(subtitles, phrases):
-    """Анализирует дубликаты фраз в субтитрах и среди самих фраз."""
     phrase_counts = {}
     subtitle_matches = {}
+    not_found_phrases = []
+    partial_matches = []
 
-    # Анализ дублей среди фраз
-    norm_phrases = [normalize_text(p) for p in phrases]
-    for i, norm_p in enumerate(norm_phrases):
-        phrase_counts[norm_p] = phrase_counts.get(norm_p, 0) + 1
+    # Поиск совпадений
+    for phrase in phrases:
+        found = False
+        phrase_matches = []
+        norm_phrase = normalize_text(phrase)
+        phrase_counts[norm_phrase] = phrase_counts.get(norm_phrase, 0) + 1
 
-    # Анализ совпадений в субтитрах
+        for sub in subtitles:
+            similarity, matched_phrase, matched_text = find_matches(sub.text, phrase, threshold)
+            if similarity == 1.0:
+                found = True
+                phrase_matches.append({
+                    'subtitle': sub,
+                    'phrase': phrase,
+                    'similarity': similarity
+                })
+            elif similarity > 0:
+                found = True
+                partial_matches.append({
+                    'phrase': phrase,
+                    'similarity': similarity,
+                    'subtitle_index': sub.index,
+                    'subtitle_text': matched_text
+                })
+
+        if not found:
+            not_found_phrases.append(phrase)
+        if phrase_matches:
+            results.extend(phrase_matches)
+
+    # Анализ дубликатов
+    phrase_duplicates = {p: c for p, c in phrase_counts.items() if c > 1}
     for sub in subtitles:
         norm_sub = normalize_text(sub.text)
         subtitle_matches[sub.index] = norm_sub
 
-    duplicates = {
-        'phrase_duplicates': {p: c for p, c in phrase_counts.items() if c > 1},
-        'subtitle_duplicates': {}
-    }
-
-    # Поиск дублей среди субтитров
+    subtitle_duplicates = {}
     seen = {}
     for idx, text in subtitle_matches.items():
         if text in seen:
-            duplicates['subtitle_duplicates'].setdefault(text, []).append((idx, seen[text]))
+            subtitle_duplicates.setdefault(text, []).append((idx, seen[text]))
         else:
             seen[text] = idx
 
-    return duplicates
+    return {
+        'results': results,
+        'not_found': not_found_phrases,
+        'partial_matches': partial_matches,
+        'phrase_duplicates': phrase_duplicates,
+        'subtitle_duplicates': subtitle_duplicates
+    }
+
+
+def generate_excerpts(subtitles, phrases, threshold, output_path):
+    """Генерирует отрывки с фразами в формате SRT."""
+    with open(output_path, 'w', encoding='utf-8') as f:
+        index = 1
+        for phrase in phrases:
+            for sub in subtitles:
+                similarity, _, _ = find_matches(sub.text, phrase, threshold)
+                if similarity > 0:
+                    f.write(format_srt_entry(index, sub.start, sub.end, sub.text))
+                    index += 1
+
+
+def generate_timestamps(subtitles, phrases, threshold, output_path):
+    """Генерирует точные таймкоды для фраз в формате SRT."""
+    with open(output_path, 'w', encoding='utf-8') as f:
+        index = 1
+        for phrase in phrases:
+            for sub in subtitles:
+                similarity, _, _ = find_matches(sub.text, phrase, threshold)
+                if similarity == 1.0:  # Только точные совпадения
+                    start, end = calculate_exact_timestamps(sub, phrase)
+                    f.write(format_srt_entry(index, start, end, phrase))
+                    index += 1
