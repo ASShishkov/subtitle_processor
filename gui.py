@@ -14,6 +14,7 @@ class SubtitleFilterApp:
         self.root.title("Фильтрация субтитров")
         self.config = configparser.ConfigParser()
         self.is_running = False
+        self.selected_matches = {}
         self.setup_gui()
         self.setup_logging()
         self.load_config()
@@ -62,27 +63,23 @@ class SubtitleFilterApp:
         self.progress = ttk.Progressbar(self.root, length=300, mode='determinate')
         self.progress.grid(row=7, column=0, columnspan=3, padx=5, pady=5)
 
-        # Метка статуса
+        # Метка статуса и потенциальных отрывков
         self.status_label = tk.Label(self.root, text="Готов к работе", fg="green")
         self.status_label.grid(row=8, column=0, columnspan=3, padx=5, pady=5)
+        self.potential_label = tk.Label(self.root, text="Потенциальных отрывков: 0", fg="black")
+        self.potential_label.grid(row=9, column=0, columnspan=3, padx=5, pady=5)
 
-        # Таблица дублей
-        self.tree = ttk.Treeview(self.root, columns=("Фраза", "Тип", "Блок/Строка", "Таймкоды/Текст", "Выбор"),
-                                 show="headings")
-        self.tree.grid(row=9, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
+        # Таблица
+        self.tree = ttk.Treeview(self.root, columns=("Фраза", "Субтитр", "Выбор"), show="headings")
+        self.tree.grid(row=10, column=0, columnspan=3, padx=5, pady=5, sticky="nsew")
         self.tree.heading("Фраза", text="Фраза")
-        self.tree.heading("Тип", text="Тип")
-        self.tree.heading("Блок/Строка", text="Блок/Строка")
-        self.tree.heading("Таймкоды/Текст", text="Таймкоды/Текст")
+        self.tree.heading("Субтитр", text="Субтитр")
         self.tree.heading("Выбор", text="Выбор")
         self.tree.column("Фраза", width=150)
-        self.tree.column("Тип", width=100)
-        self.tree.column("Блок/Строка", width=100)
-        self.tree.column("Таймкоды/Текст", width=150)
+        self.tree.column("Субтитр", width=300)
         self.tree.column("Выбор", width=50)
 
     def setup_logging(self):
-        """Настраивает логирование."""
         self.logger = logging.getLogger('SubtitleFilterApp')
         self.logger.setLevel(logging.INFO)
         handler = logging.FileHandler(os.path.join(self.output_path.get() or 'output', 'log.txt'), encoding='utf-8')
@@ -137,67 +134,61 @@ class SubtitleFilterApp:
             threshold = self.match_threshold.get() / 100.0
             analysis = analyze_phrases(subs, phrases, threshold)
 
-            # Формируем отчет
-            report_path = os.path.join(self.output_path.get(), "analysis_report.txt")
-            with open(report_path, 'w', encoding='utf-8') as f:
-                f.write("--- Ненайденные фразы ---\n")
-                if analysis['not_found']:
-                    f.write(f"Количество ненайденных фраз: {len(analysis['not_found'])}\n")
-                    for phrase in analysis['not_found']:
-                        f.write(f"Фраза: {phrase}\n")
-                else:
-                    f.write("Ненайденных фраз нет\n")
-                f.write("-----------------------\n")
-
-                f.write("--- Частично совпадающие фразы ---\n")
-                if analysis['partial_matches']:
-                    for match in analysis['partial_matches']:
-                        f.write(f"Фраза: {match['phrase']} (совпадение: {match['similarity'] * 100:.1f}%)\n")
-                        f.write(f"Найдено в блоке {match['subtitle_index']}: {match['subtitle_text']}\n")
-                else:
-                    f.write("Частичных совпадений нет\n")
-                f.write("-----------------------\n")
-
-                f.write("--- Дублирующиеся фразы (в phrases.txt) ---\n")
-                if analysis['phrase_duplicates']:
-                    for phrase, count in analysis['phrase_duplicates'].items():
-                        f.write(f"Фраза: {phrase} (встречается {count} раз)\n")
-                else:
-                    f.write("Дублей среди фраз нет\n")
-                f.write("-----------------------\n")
-
-                f.write("--- Дублирующиеся фразы (в субтитрах) ---\n")
-                if analysis['subtitle_duplicates']:
-                    for text, indices in analysis['subtitle_duplicates'].items():
-                        f.write(f"Фраза: {text} (встречается {len(indices) + 1} раз)\n")
-                        f.write(f"Блоки: {', '.join(str(idx) for idx, _ in indices)}\n")
-                else:
-                    f.write("Дублей в субтитрах нет\n")
-                f.write("-----------------------\n")
-
-            # Обновляем таблицу дублей
+            # Очищаем таблицу
             for item in self.tree.get_children():
                 self.tree.delete(item)
 
-            for phrase, count in analysis['phrase_duplicates'].items():
-                self.tree.insert("", "end", values=(phrase, "Дубль фразы", f"Кол-во: {count}", "", ""))
+            # Полные совпадения
+            self.tree.insert("", "end", values=("", "Полностью совпадающие фразы (кол-во: " + str(
+                len(analysis['full_matches'])) + ")", ""))
+            for phrase, match in analysis['full_matches'].items():
+                var = tk.BooleanVar(value=True)
+                self.tree.insert("", "end", values=(phrase, match['text'], ttk.Checkbutton(self.tree, variable=var)))
+                self.selected_matches[(phrase, match['subtitle'].index)] = var
 
-            for text, indices in analysis['subtitle_duplicates'].items():
-                blocks = ', '.join(str(idx) for idx, _ in indices)
-                self.tree.insert("", "end", values=(text, "Дубль субтитра", blocks, "", ""))
+            # Частично совпадающие
+            self.tree.insert("", "end", values=("", "Частично совпадающие фразы (кол-во: " + str(
+                sum(len(m) for _, m in analysis['partial_matches'])) + ")", ""))
+            for phrase, matches in analysis['partial_matches']:
+                var = tk.BooleanVar(value=True)
+                best_match = max(matches, key=lambda x: x['similarity'])
+                self.tree.insert("", "end",
+                                 values=(phrase, best_match['text'], ttk.Checkbutton(self.tree, variable=var)))
+                self.selected_matches[(phrase, best_match['subtitle'].index)] = var
 
-            # Обновляем статус
-            if not (analysis['not_found'] or analysis['partial_matches'] or analysis['phrase_duplicates'] or analysis[
-                'subtitle_duplicates']):
+            # Ненайденные фразы
+            self.tree.insert("", "end",
+                             values=("", "Ненайденные фразы (кол-во: " + str(len(analysis['not_found'])) + ")", ""))
+            for phrase, best_matches in analysis['not_found']:
+                var = tk.BooleanVar(value=True)
+                for i, match in enumerate(best_matches[:3]):
+                    if i == 0:
+                        self.tree.insert("", "end",
+                                         values=(phrase, match['text'], ttk.Checkbutton(self.tree, variable=var)))
+                        self.selected_matches[(phrase, match['subtitle'].index)] = var
+                    else:
+                        self.tree.insert("", "end", values=("", match['text'], ""))
+
+            # Дубли в фразах
+            self.tree.insert("", "end", values=("", "Дубли в фразах (информационно, кол-во: " + str(
+                len(analysis['duplicates'])) + ")", ""))
+            for phrase, count in analysis['duplicates'].items():
+                self.tree.insert("", "end", values=(phrase, f"Встречается {count} раз", ""))
+
+            # Потенциальные отрывки
+            total_potential = len(analysis['full_matches']) + sum(len(m) for _, m in analysis['partial_matches']) + sum(
+                len(m) for _, m in analysis['not_found'] if m)
+            self.potential_label.config(text=f"Потенциальных отрывков: {total_potential}")
+
+            # Статус
+            if not (analysis['not_found'] or analysis['partial_matches'] or analysis['duplicates']):
                 self.status_label.config(
-                    text=f"Проблем нет. Фраз: {len(phrases)}, потенциальных отрывков: {len(analysis['results'])}",
-                    fg="green")
+                    text=f"Проблем нет. Фраз: {len(phrases)}, потенциальных отрывков: {total_potential}", fg="green")
             else:
-                issues = sum(
-                    [len(analysis['not_found']), len(analysis['partial_matches']), len(analysis['phrase_duplicates']),
-                     len(analysis['subtitle_duplicates'])])
+                issues = sum([len(analysis['not_found']), sum(len(m) for _, m in analysis['partial_matches']),
+                              len(analysis['duplicates'])])
                 self.status_label.config(
-                    text=f"Найдено проблем: {issues}. Фраз: {len(phrases)}, потенциальных отрывков: {len(analysis['results'])}",
+                    text=f"Найдено проблем: {issues}. Фраз: {len(phrases)}, потенциальных отрывков: {total_potential}",
                     fg="red")
 
             if self.enable_logging.get():
@@ -223,7 +214,18 @@ class SubtitleFilterApp:
             threshold = self.match_threshold.get() / 100.0
             self.progress['maximum'] = len(phrases)
             output_path = os.path.join(self.output_path.get(), "filtered_subtitles.srt")
-            generate_excerpts(subs, phrases, threshold, output_path)
+
+            # Собираем выбранные совпадения
+            selected = {}
+            for (phrase, sub_index), var in self.selected_matches.items():
+                if var.get():
+                    if phrase not in selected:
+                        selected[phrase] = []
+                    for sub in subs:
+                        if sub.index == sub_index:
+                            selected[phrase].append({'subtitle': sub, 'text': sub.text})
+
+            generate_excerpts(subs, phrases, threshold, output_path, selected)
             for i in range(len(phrases)):
                 if not self.is_running:
                     raise InterruptedError("Процесс остановлен")
@@ -256,7 +258,18 @@ class SubtitleFilterApp:
             threshold = self.match_threshold.get() / 100.0
             self.progress['maximum'] = len(phrases)
             output_path = os.path.join(self.output_path.get(), "precise_timestamps.srt")
-            generate_timestamps(subs, phrases, threshold, output_path)
+
+            # Собираем выбранные совпадения
+            selected = {}
+            for (phrase, sub_index), var in self.selected_matches.items():
+                if var.get():
+                    if phrase not in selected:
+                        selected[phrase] = []
+                    for sub in subs:
+                        if sub.index == sub_index:
+                            selected[phrase].append({'subtitle': sub, 'text': phrase})
+
+            generate_timestamps(subs, phrases, threshold, output_path, selected)
             for i in range(len(phrases)):
                 if not self.is_running:
                     raise InterruptedError("Процесс остановлен")
@@ -276,7 +289,7 @@ class SubtitleFilterApp:
     def show_report(self):
         report_path = os.path.join(self.output_path.get(), "analysis_report.txt")
         if os.path.exists(report_path):
-            os.startfile(report_path)  # Windows
+            os.startfile(report_path)
             self.status_label.config(text="Отчет открыт", fg="green")
             if self.enable_logging.get():
                 self.logger.info("Отчет открыт")
@@ -289,6 +302,7 @@ class SubtitleFilterApp:
         self.status_label.config(text="Поля очищены", fg="green")
         for item in self.tree.get_children():
             self.tree.delete(item)
+        self.selected_matches.clear()
         if self.enable_logging.get():
             self.logger.info("Таблица очищена")
 
