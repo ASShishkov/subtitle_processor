@@ -8,40 +8,45 @@ def analyze_phrases(subtitles, phrases, threshold):
     not_found_phrases = []
     partial_matches = []
     selected_results = {}
+    unique_phrases = set()  # Для уникальных фраз
+    phrase_order = []  # Для сохранения порядка фраз
 
-    # Подсчет дубликатов фраз
+    # Подсчет дубликатов фраз и уникальных фраз
     for phrase in phrases:
         norm_phrase = normalize_text(phrase)
         phrase_counts[norm_phrase] = phrase_counts.get(norm_phrase, 0) + 1
+        if phrase not in unique_phrases:
+            unique_phrases.add(phrase)
+            phrase_order.append(phrase)
 
     # Анализ совпадений
-    for phrase in phrases:
+    for phrase in unique_phrases:  # Обрабатываем только уникальные фразы
         norm_phrase = normalize_text(phrase)
         matches = []
         for sub in subtitles:
             similarity, matched_phrase, matched_text = find_matches(sub.text, phrase, threshold)
-            if similarity >= 0.95:  # Полные и частичные совпадения
+            if similarity >= 0.95:  # Полные совпадения
                 matches.append({
                     'subtitle': sub,
                     'similarity': similarity,
-                    'text': matched_text
+                    'text': sub.text  # Сохраняем оригинальный текст субтитра
                 })
 
         if not matches:
             # Предлагаем до 3 наиболее подходящих субтитров для ненайденных фраз
             best_matches = []
             for sub in subtitles:
-                similarity, _, matched_text = find_matches(sub.text, phrase, 0.0)  # Без порога
+                similarity, _, matched_text = find_matches(sub.text, phrase, 0.0)
                 if similarity > 0:
                     best_matches.append({
                         'subtitle': sub,
                         'similarity': similarity,
-                        'text': matched_text
+                        'text': sub.text
                     })
             best_matches.sort(key=lambda x: x['similarity'], reverse=True)
             not_found_phrases.append((phrase, best_matches[:3] if best_matches else []))
         else:
-            # Учитываем только уникальные субтитры, если несколько вхождений фразы
+            # Учитываем только уникальные субтитры
             unique_matches = []
             seen_texts = set()
             for match in matches:
@@ -65,12 +70,13 @@ def analyze_phrases(subtitles, phrases, threshold):
         'partial_matches': partial_matches,
         'not_found': not_found_phrases,
         'duplicates': phrase_duplicates,
-        'multiple_matches': {k: v for k, v in results.items() if len(v) > 1}
+        'multiple_matches': {k: v for k, v in results.items() if len(v) > 1},
+        'total_unique_phrases': len(unique_phrases),
+        'phrase_order': phrase_order  # Сохраняем порядок фраз
     }
 
 
 def generate_excerpts(subtitles, phrases, threshold, output_path, selected_matches):
-    """Генерирует отрывки с фразами в формате SRT, сортируя по времени."""
     with open(output_path, 'w', encoding='utf-8') as f:
         index = 1
         sorted_matches = []
@@ -85,7 +91,6 @@ def generate_excerpts(subtitles, phrases, threshold, output_path, selected_match
 
 
 def generate_timestamps(subtitles, phrases, threshold, output_path, selected_matches):
-    """Генерирует точные таймкоды для фраз в формате SRT, сортируя по времени."""
     with open(output_path, 'w', encoding='utf-8') as f:
         index = 1
         sorted_matches = []
