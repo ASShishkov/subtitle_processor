@@ -7,7 +7,6 @@ import logging
 from subtitle_processor import analyze_phrases, generate_excerpts, generate_timestamps
 from utils import parse_srt
 
-
 class SubtitleFilterApp:
     def __init__(self, root):
         self.root = root
@@ -23,6 +22,7 @@ class SubtitleFilterApp:
         self.load_config()
 
     def setup_gui(self):
+        self.root.geometry("800x600")  # Фиксированный размер окна
         self.subtitles_path = tk.StringVar()
         self.phrases_path = tk.StringVar()
         self.output_path = tk.StringVar()
@@ -31,57 +31,60 @@ class SubtitleFilterApp:
         files_frame = ttk.LabelFrame(self.root, text="Файлы")
         files_frame.grid(row=0, column=0, columnspan=3, padx=10, pady=5, sticky="ew")
 
-        tk.Label(files_frame, text="Путь к субтитрам (SRT):").grid(row=0, column=0, padx=5, pady=5)
-        tk.Entry(files_frame, textvariable=self.subtitles_path, width=50).grid(row=0, column=1, padx=5, pady=5)
-        tk.Button(files_frame, text="Обзор", command=self.browse_subtitles).grid(row=0, column=2, padx=5, pady=5)
+        tk.Label(files_frame, text="?", cursor="hand2").grid(row=0, column=0, padx=2)
+        files_frame.children['!label'].bind("<Button-1>", lambda e: self.show_tooltip(e, "Выберите SRT-файл с субтитрами"))
+        tk.Label(files_frame, text="Путь к субтитрам (SRT):").grid(row=0, column=1, padx=5, pady=5)
+        tk.Entry(files_frame, textvariable=self.subtitles_path, width=50).grid(row=0, column=2, padx=5, pady=5)
+        tk.Button(files_frame, text="Обзор", command=self.browse_subtitles).grid(row=0, column=3, padx=5, pady=5)
 
-        tk.Label(files_frame, text="Путь к файлу фраз (TXT):").grid(row=1, column=0, padx=5, pady=5)
-        tk.Entry(files_frame, textvariable=self.phrases_path, width=50).grid(row=1, column=1, padx=5, pady=5)
-        tk.Button(files_frame, text="Обзор", command=self.browse_phrases).grid(row=1, column=2, padx=5, pady=5)
+        tk.Label(files_frame, text="?", cursor="hand2").grid(row=1, column=0, padx=2)
+        files_frame.children['!label2'].bind("<Button-1>", lambda e: self.show_tooltip(e, "Выберите TXT-файл с фразами"))
+        tk.Label(files_frame, text="Путь к файлу фраз (TXT):").grid(row=1, column=1, padx=5, pady=5)
+        tk.Entry(files_frame, textvariable=self.phrases_path, width=50).grid(row=1, column=2, padx=5, pady=5)
+        tk.Button(files_frame, text="Обзор", command=self.browse_phrases).grid(row=1, column=3, padx=5, pady=5)
 
-        tk.Label(files_frame, text="Папка вывода:").grid(row=2, column=0, padx=5, pady=5)
-        tk.Entry(files_frame, textvariable=self.output_path, width=50).grid(row=2, column=1, padx=5, pady=5)
-        tk.Button(files_frame, text="Обзор", command=self.browse_output).grid(row=2, column=2, padx=5, pady=5)
+        tk.Label(files_frame, text="?", cursor="hand2").grid(row=2, column=0, padx=2)
+        files_frame.children['!label3'].bind("<Button-1>", lambda e: self.show_tooltip(e, "Выберите папку для сохранения результатов"))
+        tk.Label(files_frame, text="Папка вывода:").grid(row=2, column=1, padx=5, pady=5)
+        tk.Entry(files_frame, textvariable=self.output_path, width=50).grid(row=2, column=2, padx=5, pady=5)
+        tk.Button(files_frame, text="Обзор", command=self.browse_output).grid(row=2, column=3, padx=5, pady=5)
 
-        tk.Label(files_frame, text="Имя выходного файла:").grid(row=3, column=0, padx=5, pady=5)
-        tk.Entry(files_frame, textvariable=self.output_filename, width=50).grid(row=3, column=1, padx=5, pady=5)
+        tk.Label(files_frame, text="?", cursor="hand2").grid(row=3, column=0, padx=2)
+        files_frame.children['!label4'].bind("<Button-1>", lambda e: self.show_tooltip(e, "Введите имя для выходных файлов"))
+        tk.Label(files_frame, text="Имя выходного файла:").grid(row=3, column=1, padx=5, pady=5)
+        tk.Entry(files_frame, textvariable=self.output_filename, width=50).grid(row=3, column=2, padx=5, pady=5)
 
         settings_frame = ttk.LabelFrame(self.root, text="Настройки")
-        settings_frame.grid(row=1, column=0, columnspan=3, padx=10, pady=5, sticky="ew")
+        settings_frame.grid(row=1, column=0, padx=10, pady=5, sticky="w")
 
-        tk.Label(settings_frame, text="Порог частичного совпадения (%):").grid(row=0, column=0, padx=5, pady=5)
+        tk.Label(settings_frame, text="?", cursor="hand2").grid(row=0, column=0, padx=2)
+        settings_frame.children['!label'].bind("<Button-1>", lambda e: self.show_tooltip(e, "Установите порог совпадения для поиска фраз"))
+        tk.Label(settings_frame, text="Порог частичного совпадения (%):").grid(row=0, column=1, padx=5, pady=5)
         self.match_threshold = tk.DoubleVar(value=80.0)
         tk.Scale(settings_frame, from_=50, to=100, resolution=5, orient=tk.HORIZONTAL,
-                 variable=self.match_threshold).grid(row=0, column=1, padx=5, pady=5)
+                 variable=self.match_threshold).grid(row=0, column=2, padx=5, pady=5)
 
         sort_frame = tk.Frame(settings_frame)
-        sort_frame.grid(row=1, column=0, columnspan=2, padx=5, pady=5, sticky="w")
-        tk.Label(sort_frame, text="Сортировка:").grid(row=0, column=0, padx=5, pady=5)
+        sort_frame.grid(row=1, column=0, columnspan=3, padx=5, pady=5, sticky="w")
+        tk.Label(sort_frame, text="?", cursor="hand2").grid(row=0, column=0, padx=2)
+        sort_frame.children['!label'].bind("<Button-1>", lambda e: self.show_tooltip(e, "Сортировка по файлу - по порядку фраз, по времени - по времени субтитров"))
+        tk.Label(sort_frame, text="Сортировка:").grid(row=0, column=1, padx=5, pady=5)
         self.sort_option = tk.StringVar(value="time")
         sort_menu = ttk.Combobox(sort_frame, textvariable=self.sort_option, values=["time", "file"], state="readonly")
-        sort_menu.grid(row=0, column=1, padx=5, pady=5)
+        sort_menu.grid(row=0, column=2, padx=5, pady=5)
         sort_menu.bind("<<ComboboxSelected>>", self.update_sorting)
 
-        info_icon = tk.Label(sort_frame, text="?", fg="blue", cursor="hand2")
-        info_icon.grid(row=0, column=2, padx=5, pady=5)
-        info_icon.bind("<Enter>", lambda e: self.show_tooltip(e,
-                                                              "Сортировка по файлу - фразы сортируются в том порядке, как в файле с фразами для изучения.\nСортировка по времени - фразы сортируются по времени субтитров, как в фильме."))
-
         self.save_paths = tk.BooleanVar(value=True)
-        tk.Checkbutton(settings_frame, text="Сохранить пути", variable=self.save_paths).grid(row=2, column=0, padx=5,
-                                                                                             pady=5)
+        tk.Checkbutton(settings_frame, text="Сохранить пути", variable=self.save_paths).grid(row=2, column=1, padx=5, pady=5)
         self.enable_logging = tk.BooleanVar(value=True)
-        tk.Checkbutton(settings_frame, text="Включить логирование", variable=self.enable_logging).grid(row=2, column=1,
-                                                                                                       padx=5, pady=5)
+        tk.Checkbutton(settings_frame, text="Включить логирование", variable=self.enable_logging).grid(row=2, column=2, padx=5, pady=5)
 
         actions_frame = ttk.LabelFrame(self.root, text="Действия")
-        actions_frame.grid(row=2, column=0, columnspan=3, padx=10, pady=5, sticky="ew")
-
-        tk.Button(actions_frame, text="Проверить", command=self.check_phrases).grid(row=0, column=0, padx=5, pady=5)
-        tk.Button(actions_frame, text="Найти отрывки", command=self.find_excerpts).grid(row=0, column=1, padx=5, pady=5)
-        tk.Button(actions_frame, text="Получить таймкоды", command=self.get_timestamps).grid(row=0, column=2, padx=5,
-                                                                                             pady=5)
-        tk.Button(actions_frame, text="Очистить", command=self.clear_fields).grid(row=1, column=1, padx=5, pady=5)
+        actions_frame.grid(row=1, column=1, padx=10, pady=5, sticky="e")
+        tk.Button(actions_frame, text="Найти совпадения", command=self.check_phrases).grid(row=0, column=0, padx=5, pady=5)
+        tk.Button(actions_frame, text="Получить отрывки", command=self.find_excerpts).grid(row=0, column=1, padx=5, pady=5)
+        tk.Button(actions_frame, text="Получить точные таймкоды фраз", command=self.get_timestamps).grid(row=0, column=2, padx=5, pady=5)
+        tk.Button(actions_frame, text="Очистить таблицу", command=self.clear_fields).grid(row=1, column=1, padx=5, pady=5)
 
         self.progress = ttk.Progressbar(self.root, length=300, mode='determinate')
         self.progress.grid(row=3, column=0, columnspan=3, padx=10, pady=5)
@@ -93,7 +96,7 @@ class SubtitleFilterApp:
 
         tree_frame = ttk.Frame(self.root)
         tree_frame.grid(row=6, column=0, columnspan=3, padx=10, pady=5, sticky="nsew")
-        self.tree = ttk.Treeview(tree_frame, columns=("Фраза", "Субтитр", "Выбор"), show="headings", height=15)
+        self.tree = ttk.Treeview(tree_frame, columns=("Фраза", "Субтитр", "Выбор"), show="headings", height=10)
         self.tree.heading("Фраза", text="Фраза")
         self.tree.heading("Субтитр", text="Субтитр")
         self.tree.heading("Выбор", text="Выбор")
@@ -111,6 +114,7 @@ class SubtitleFilterApp:
         tree_frame.grid_columnconfigure(0, weight=1)
 
         style = ttk.Style()
+        style.configure("Treeview", anchor="w")  # Выравнивание текста по левому краю
         style.configure("Bold.Treeview", font=("Helvetica", 10, "bold"))
         self.tree.tag_configure("bold", font=("Helvetica", 10, "bold"))
         self.tree.tag_configure("yes", foreground="green")
@@ -129,9 +133,8 @@ class SubtitleFilterApp:
         tooltip = tk.Toplevel(self.root)
         tooltip.wm_overrideredirect(True)
         tooltip.wm_geometry(f"+{event.x_root + 20}+{event.y_root + 20}")
-        label = tk.Label(tooltip, text=text, background="yellow", relief="solid", borderwidth=1)
+        label = tk.Label(tooltip, text=text, background="#FFFFE0", relief="solid", borderwidth=1)
         label.pack()
-        self.root.after(3000, tooltip.destroy)
 
     def browse_subtitles(self):
         path = filedialog.askopenfilename(filetypes=[("SRT files", "*.srt")])
@@ -169,6 +172,11 @@ class SubtitleFilterApp:
                 self.config.write(configfile)
 
     def toggle_selection(self, event):
+        # Проверяем, что клик был в колонке "Выбор" (индекс 2)
+        region = self.tree.identify_region(event.x, event.y)
+        if region != "cell" or self.tree.identify_column(event.x) != "#3":
+            return
+
         item = self.tree.selection()
         if not item:
             return
@@ -181,28 +189,34 @@ class SubtitleFilterApp:
         subtitle_text = values[1]
         key = (phrase, subtitle_text)
 
+        # Создаем всплывающее меню
+        menu = tk.Menu(self.root, tearoff=0)
+        menu.add_command(label="Да", command=lambda: self._set_selection(key, item, True))
+        menu.add_command(label="Нет", command=lambda: self._set_selection(key, item, False))
+
+        # Показываем меню в позиции клика
+        menu.post(event.x_root, event.y_root)
+
+    def _set_selection(self, key, item_id, value):
+        phrase = self.tree.item(item_id, "values")[0]
         if phrase in self.phrase_groups:
             group = self.phrase_groups[phrase]
             if key in group:
-                if self.selected_matches[key]:
-                    for k in group:
-                        self.selected_matches[k] = False
-                        item_id = group[k]
-                        self.tree.item(item_id, values=(self.tree.item(item_id, "values")[0],
-                                                        self.tree.item(item_id, "values")[1], "Нет"), tags=("no",))
-                else:
-                    for k in group:
-                        self.selected_matches[k] = (k == key)
-                        item_id = group[k]
-                        self.tree.item(item_id, values=(self.tree.item(item_id, "values")[0],
-                                                        self.tree.item(item_id, "values")[1],
-                                                        "Да" if k == key else "Нет"),
-                                       tags=("yes" if k == key else "no",))
+                for k in group:
+                    self.selected_matches[k] = (k == key and value)
+                    item_id = group.get(k)  # Используем существующий item_id или None
+                    if item_id:  # Обновляем только если item_id существует
+                        current_values = self.tree.item(item_id, "values")
+                        self.tree.item(item_id, values=(current_values[0], current_values[1],
+                                                        "Да" if (k == key and value) else "Нет"),
+                                       tags=("yes" if (k == key and value) else "no",))
+                    if k == key and value and item_id:  # Обновляем группу с новым item_id
+                        group[k] = item_id
         else:
-            current_state = self.selected_matches.get(key, True)
-            self.selected_matches[key] = not current_state
-            self.tree.item(item, values=(values[0], values[1], "Да" if not current_state else "Нет"),
-                           tags=("yes" if not current_state else "no",))
+            self.selected_matches[key] = value
+            current_values = self.tree.item(item_id, "values")
+            self.tree.item(item_id, values=(current_values[0], current_values[1], "Да" if value else "Нет"),
+                           tags=("yes" if value else "no",))
 
         self.update_potential_count()
 
@@ -322,14 +336,16 @@ class SubtitleFilterApp:
             self.update_potential_count()
 
             if not (analysis['not_found'] or analysis['partial_matches'] or analysis['duplicates']):
+                total_phrases = analysis['total_unique_phrases'] + len(analysis['duplicates'])
                 self.status_label.config(
-                    text=f"Проблем нет. Фраз: {analysis['total_unique_phrases']}, потенциальных отрывков: {self.potential_count}",
+                    text=f"Проблем нет. Фраз: {total_phrases}, потенциальных отрывков: {self.potential_count}",
                     fg="green")
             else:
                 issues = sum([len(analysis['not_found']), sum(len(m) for _, m in analysis['partial_matches']),
                               len(analysis['duplicates'])])
+                total_phrases = analysis['total_unique_phrases'] + len(analysis['duplicates'])
                 self.status_label.config(
-                    text=f"Найдено проблем: {issues}. Фраз: {analysis['total_unique_phrases']}, потенциальных отрывков: {self.potential_count}",
+                    text=f"Найдено проблем: {issues}. Фраз: {total_phrases}, потенциальных отрывков: {self.potential_count}",
                     fg="red")
 
             if self.enable_logging.get():
@@ -364,7 +380,7 @@ class SubtitleFilterApp:
                                 selected[phrase] = []
                             selected[phrase].append({'subtitle': sub, 'text': sub.text})
 
-            filename = f"episodes_{self.potential_count}"
+            filename = f"{self.output_filename.get()}_sub-{self.potential_count}"
             output_path = os.path.join(self.output_path.get(), f"FinalExcerpts_{filename}.srt")
             generate_excerpts(subs, phrases, threshold, output_path, selected)
             for i in range(len(phrases)):
@@ -406,8 +422,8 @@ class SubtitleFilterApp:
                                 selected[phrase] = []
                             selected[phrase].append({'subtitle': sub, 'text': phrase})
 
-            filename = f"episodes_{self.potential_count}"
-            output_path = os.path.join(self.output_path.get(), f"precise_timestamps_{filename}.srt")
+            filename = f"{self.output_filename.get()}_sub-{self.potential_count}"
+            output_path = os.path.join(self.output_path.get(), f"FinalExcerpts_{filename}.srt")
             generate_timestamps(subs, phrases, threshold, output_path, selected)
             for i in range(len(phrases)):
                 self.progress['value'] = i + 1
@@ -434,10 +450,16 @@ class SubtitleFilterApp:
             self.logger.info("Таблица очищена")
 
     def update_potential_count(self):
-        count = sum(1 for (phrase, _) in self.selected_matches if
-                    self.selected_matches[(phrase, _)] and phrase not in self.phrase_groups)
-        for group in self.phrase_groups.values():
-            if any(self.selected_matches[k] for k in group):
+        count = 0
+        selected_phrases = set()
+        # Подсчитываем уникальные выбранные фразы вне групп
+        for (phrase, _) in self.selected_matches:
+            if self.selected_matches.get((phrase, _), False) and phrase not in self.phrase_groups:
+                selected_phrases.add(phrase)
+        count += len(selected_phrases)
+        # Подсчитываем выбранные группы
+        for phrase, group in self.phrase_groups.items():
+            if any(self.selected_matches.get(k, False) for k in group):
                 count += 1
-        self.potential_count = count
-        self.potential_label.config(text=f"Потенциальных отрывков: {count}")
+        self.potential_count = count + 1
+        self.potential_label.config(text=f"Потенциальных отрывков: {count + 1}")
