@@ -52,14 +52,28 @@ def calculate_exact_timestamps(subtitle, phrase):
     phrase_words = norm_phrase.split()
     phrase_len = len(phrase_words)
 
+    # Поиск точного совпадения
     for i in range(len(sub_words) - phrase_len + 1):
-        if ' '.join(sub_words[i:i + phrase_len]) == norm_phrase:
+        window = ' '.join(sub_words[i:i + phrase_len])
+        if window == norm_phrase:
             start_ratio = i / len(sub_words)
             end_ratio = (i + phrase_len) / len(sub_words)
             start_ms = start_time.ordinal + int(total_duration_ms * start_ratio)
             end_ms = start_time.ordinal + int(total_duration_ms * end_ratio)
             return (pysrt.SubRipTime.from_ordinal(start_ms),
                     pysrt.SubRipTime.from_ordinal(end_ms))
+
+    # Если точного совпадения нет, используем приближенное совпадение с difflib
+    matcher = difflib.SequenceMatcher(None, norm_subtitle, norm_phrase)
+    match = matcher.find_longest_match(0, len(norm_subtitle), 0, len(norm_phrase))
+    if match.size > 0:
+        start_ratio = match.a / len(norm_subtitle)
+        end_ratio = (match.a + match.size) / len(norm_subtitle)
+        start_ms = start_time.ordinal + int(total_duration_ms * start_ratio)
+        end_ms = start_time.ordinal + int(total_duration_ms * end_ratio)
+        return (pysrt.SubRipTime.from_ordinal(start_ms),
+                pysrt.SubRipTime.from_ordinal(end_ms))
+
     return start_time, end_time
 
 

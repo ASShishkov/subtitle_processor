@@ -84,17 +84,27 @@ def generate_excerpts(subtitles, phrases, threshold, output_path, selected_match
             f.write(format_srt_entry(index, sub.start, sub.end, text))
             index += 1
 
-
 def generate_timestamps(subtitles, phrases, threshold, output_path, selected_matches):
-    with open(output_path, 'w', encoding='utf-8') as f:
-        index = 1
-        sorted_matches = []
-        for phrase, match_list in selected_matches.items():
-            for match in match_list:
-                start, end = calculate_exact_timestamps(match['subtitle'], phrase)
-                sorted_matches.append((phrase, start, end, phrase))
-        sorted_matches.sort(key=lambda x: x[1].ordinal)
+    try:
+        with open(output_path, 'w', encoding='utf-8') as f:
+            index = 1
+            sorted_matches = []
+            for phrase, match_list in selected_matches.items():
+                for match in match_list:
+                    subtitle = match['subtitle']
+                    # Вычисляем точное время начала и конца фразы внутри субтитра
+                    start, end = calculate_exact_timestamps(subtitle, phrase)
+                    # Используем саму фразу как текст для записи
+                    sorted_matches.append((phrase, start, end, phrase))
+            sorted_matches.sort(key=lambda x: x[1].ordinal)
 
-        for phrase, start, end, text in sorted_matches:
-            f.write(format_srt_entry(index, start, end, text))
-            index += 1
+            print(f"Writing to file: {output_path}")
+            print(f"Sorted matches: {sorted_matches}")
+
+            for phrase, start, end, text in sorted_matches:
+                f.write(format_srt_entry(index, start, end, text))
+                index += 1
+        print(f"File successfully written: {output_path}")
+    except Exception as e:
+        print(f"Error writing timestamps file: {e}")
+        raise

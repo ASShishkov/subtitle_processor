@@ -23,7 +23,7 @@ class SubtitleFilterApp:
         self.load_config()
 
     def setup_gui(self):
-        self.root.geometry("1000x700")
+        self.root.geometry("1100x700")  # Устанавливаем ширину окна через 20px после слова "логирование"
         self.subtitles_path = tk.StringVar()
         self.phrases_path = tk.StringVar()
         self.output_path = tk.StringVar()
@@ -66,6 +66,12 @@ class SubtitleFilterApp:
         ttk.Checkbutton(options_frame, text="Включить логирование", variable=self.enable_logging).grid(row=0, column=5, padx=5, pady=5)
 
         actions_frame = ttk.LabelFrame(self.root, text="Действия")
+
+        # Ползунок для высоты ячейки
+        self.row_height = tk.IntVar(value=20)
+        ttk.Label(options_frame, text="Высота ячейки (px):").grid(row=1, column=0, padx=5, pady=5)
+        ttk.Scale(options_frame, from_=20, to=60, variable=self.row_height, orient="horizontal",
+                  command=self.update_row_height).grid(row=1, column=1, padx=5, pady=5)
         actions_frame.pack(fill="x", padx=10, pady=5)
 
         ttk.Button(actions_frame, text="Найти совпадения", command=self.check_phrases).grid(row=0, column=0, padx=5, pady=5)
@@ -84,9 +90,25 @@ class SubtitleFilterApp:
 
         self.table_frame = ttk.Frame(self.root)
         self.table_frame.pack(fill="both", expand=True, padx=10, pady=5)
-
         self.sheet = Sheet(self.table_frame, headers=["Фраза", "Субтитр", "Выбор"])
-        self.sheet.set_options(row_height=40)  # Увеличиваем высоту строк для длинного текста
+        self.sheet.set_options(row_height=self.row_height.get())  # Изначальная высота
+        # Растягиваем таблицу на всю ширину области
+        self.sheet.pack(fill="both", expand=True)
+
+        # Обновляем ширину колонок при изменении размера окна
+        def update_column_widths(event):
+            total_width = self.table_frame.winfo_width()
+            self.sheet.column_width(column=0, width=int(total_width * 0.45))
+            self.sheet.column_width(column=1, width=int(total_width * 0.45))
+            self.sheet.column_width(column=2, width=int(total_width * 0.10))
+            self.sheet.refresh()
+
+        self.table_frame.bind("<Configure>", update_column_widths)
+        # Устанавливаем ширину колонок в процентах
+        total_width = self.table_frame.winfo_width() or 1000  # Фallback, если ширина еще не определена
+        self.sheet.column_width(column=0, width=int(total_width * 0.45))  # 45% для "Фраза"
+        self.sheet.column_width(column=1, width=int(total_width * 0.45))  # 45% для "Субтитр"
+        self.sheet.column_width(column=2, width=int(total_width * 0.10))  # 10% для "Выбор"
         self.sheet.enable_bindings(
             "single_select",
             "row_select",
@@ -105,6 +127,9 @@ class SubtitleFilterApp:
         # Настройка контекстного меню для столбца "Выбор"
         self.sheet.bind("<Button-3>", self.show_context_menu)
 
+    def update_row_height(self, value):
+        self.sheet.row_height(row="all", height=int(value))
+        self.sheet.redraw()
     def setup_logging(self):
         self.logger = logging.getLogger('SubtitleFilterApp')
         self.logger.setLevel(logging.INFO)
@@ -314,6 +339,13 @@ class SubtitleFilterApp:
             if self.enable_logging.get():
                 self.logger.error(f"Ошибка при проверке: {e}")
 
+    def bold_headers(self, data):
+        for i, row in enumerate(data):
+            if row[0] in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
+                          "Дубли в фразах"]:
+                self.sheet.set_cell_data(i, 0, row[0], font=("Helvetica", 10, "bold"))
+                self.sheet.merge_cells(start_row=i, start_col=0, end_row=i, end_col=2)
+
     def find_excerpts(self):
         if not self.subtitles_path.get() or not self.phrases_path.get():
             messagebox.showerror("Ошибка", "Укажите пути к файлам")
@@ -341,7 +373,12 @@ class SubtitleFilterApp:
 
             selected_count = len([k for k, v in self.selected_matches.items() if v])
             filename = f"{self.output_filename.get()}_sub-{selected_count}"
-            output_path = os.path.join(self.output_path.get(), f"FinalExcerpts_{filename}.srt")
+            # Убедимся, что директория существует
+            output_dir = self.output_path.get()
+            if not os.path.exists(output_dir):
+                os.makedirs(output_dir)
+            output_path = os.path.join(output_dir, f"Timestamps_{filename}.srt")
+            print(f"Final output path: {output_path}")
             generate_excerpts(subs, phrases, threshold, output_path, selected)
             for i in range(len(phrases)):
                 self.progress['value'] = i + 1
@@ -383,8 +420,15 @@ class SubtitleFilterApp:
                             selected[phrase].append({'subtitle': sub, 'text': phrase})
 
             selected_count = len([k for k, v in self.selected_matches.items() if v])
-            filename = f"{self.output_filename.get()}_sub-{selected_count}"
+            # Очищаем имя файла от некорректных символов
+            import re
+            clean_filename = re.sub(r'[^a-zA-Z0-9_-]', '', self.output_filename.get())
+            if not clean_filename:
+                clean_filename = "episodes"  # Fallback, если имя пустое после очистки
+            filename = f"{clean_filename}_sub-{selected_count}"
             output_path = os.path.join(self.output_path.get(), f"FinalExcerpts_{filename}.srt")
+            print(f"Selected items for timestamps: {selected}")
+            print(f"Output path: {output_path}")
             generate_timestamps(subs, phrases, threshold, output_path, selected)
             for i in range(len(phrases)):
                 self.progress['value'] = i + 1
