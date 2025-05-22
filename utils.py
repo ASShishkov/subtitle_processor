@@ -6,20 +6,17 @@ from datetime import datetime, timedelta
 
 morph = pymorphy3.MorphAnalyzer()
 
-
 def parse_srt(file_path):
     try:
         return pysrt.open(file_path)
     except Exception as e:
         raise ValueError(f"Ошибка при парсинге SRT-файла: {e}")
 
-
 def normalize_text(text):
     text = text.strip().lower()
     words = re.findall(r'\w+', text)
     normalized = [morph.parse(word)[0].normal_form for word in words]
     return ' '.join(normalized)
-
 
 def find_matches(subtitle_text, phrase, threshold=0.8):
     norm_subtitle = normalize_text(subtitle_text)
@@ -33,12 +30,10 @@ def find_matches(subtitle_text, phrase, threshold=0.8):
         return similarity, norm_phrase, subtitle_text
     return 0.0, None, None
 
-
 def format_srt_entry(index, start, end, text):
     start_str = f"{start.hours:02d}:{start.minutes:02d}:{start.seconds:02d},{start.milliseconds:03d}"
     end_str = f"{end.hours:02d}:{end.minutes:02d}:{end.seconds:02d},{end.milliseconds:03d}"
     return f"{index}\n{start_str} --> {end_str}\n{text}\n\n"
-
 
 def calculate_exact_timestamps(subtitle, phrase):
     start_time = subtitle.start
@@ -52,7 +47,6 @@ def calculate_exact_timestamps(subtitle, phrase):
     phrase_words = norm_phrase.split()
     phrase_len = len(phrase_words)
 
-    # Поиск точного совпадения
     for i in range(len(sub_words) - phrase_len + 1):
         window = ' '.join(sub_words[i:i + phrase_len])
         if window == norm_phrase:
@@ -63,7 +57,6 @@ def calculate_exact_timestamps(subtitle, phrase):
             return (pysrt.SubRipTime.from_ordinal(start_ms),
                     pysrt.SubRipTime.from_ordinal(end_ms))
 
-    # Если точного совпадения нет, используем приближенное совпадение с difflib
     matcher = difflib.SequenceMatcher(None, norm_subtitle, norm_phrase)
     match = matcher.find_longest_match(0, len(norm_subtitle), 0, len(norm_phrase))
     if match.size > 0:
@@ -75,7 +68,6 @@ def calculate_exact_timestamps(subtitle, phrase):
                 pysrt.SubRipTime.from_ordinal(end_ms))
 
     return start_time, end_time
-
 
 def sort_subtitles_by_time(subtitles):
     return sorted(subtitles, key=lambda x: x.start.ordinal)
