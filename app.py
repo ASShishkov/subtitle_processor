@@ -23,7 +23,7 @@ class SubtitleFilterApp:
         self.load_config()
 
     def setup_gui(self):
-        self.root.geometry("1100x700")  # Устанавливаем ширину окна через 20px после слова "логирование"
+        self.root.geometry("825x700")  # 1100 * 0.75 = 825
         self.subtitles_path = tk.StringVar()
         self.phrases_path = tk.StringVar()
         self.output_path = tk.StringVar()
@@ -89,26 +89,18 @@ class SubtitleFilterApp:
         self.potential_label.pack(padx=10, pady=5)
 
         self.table_frame = ttk.Frame(self.root)
-        self.table_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        self.table_frame.pack(fill="both", expand=True, padx=0, pady=0)  # Убираем отступы
+
         self.sheet = Sheet(self.table_frame, headers=["Фраза", "Субтитр", "Выбор"])
         self.sheet.set_options(row_height=self.row_height.get())  # Изначальная высота
-        # Растягиваем таблицу на всю ширину области
-        self.sheet.pack(fill="both", expand=True)
+        self.sheet.pack(fill="both", expand=True, padx=0, pady=0)  # Убираем отступы у таблицы
+
+        # Вызываем обновление ширины колонок после создания таблицы
+        self.root.after(100, self.update_column_widths)  # Задержка для корректного рендеринга
 
         # Обновляем ширину колонок при изменении размера окна
-        def update_column_widths(event):
-            total_width = self.table_frame.winfo_width()
-            self.sheet.column_width(column=0, width=int(total_width * 0.45))
-            self.sheet.column_width(column=1, width=int(total_width * 0.45))
-            self.sheet.column_width(column=2, width=int(total_width * 0.10))
-            self.sheet.refresh()
+        self.table_frame.bind("<Configure>", lambda event: self.update_column_widths())
 
-        self.table_frame.bind("<Configure>", update_column_widths)
-        # Устанавливаем ширину колонок в процентах
-        total_width = self.table_frame.winfo_width() or 1000  # Фallback, если ширина еще не определена
-        self.sheet.column_width(column=0, width=int(total_width * 0.45))  # 45% для "Фраза"
-        self.sheet.column_width(column=1, width=int(total_width * 0.45))  # 45% для "Субтитр"
-        self.sheet.column_width(column=2, width=int(total_width * 0.10))  # 10% для "Выбор"
         self.sheet.enable_bindings(
             "single_select",
             "row_select",
@@ -119,13 +111,19 @@ class SubtitleFilterApp:
             "rc_select",
             "copy",
             "paste",
-            "delete",
-            "edit_cell"
+            "delete"
         )
-        self.sheet.pack(fill="both", expand=True)
 
         # Настройка контекстного меню для столбца "Выбор"
         self.sheet.bind("<Button-3>", self.show_context_menu)
+
+    def update_column_widths(self):
+        # Добавляем небольшую задержку, чтобы дождаться корректного размера
+        total_width = max(self.table_frame.winfo_width(), 100)  # Минимальная ширина 100px
+        self.sheet.column_width(column=0, width=int(total_width * 0.45))  # 45% для "Фраза"
+        self.sheet.column_width(column=1, width=int(total_width * 0.45))  # 45% для "Субтитр"
+        self.sheet.column_width(column=2, width=int(total_width * 0.10))  # 10% для "Выбор"
+        self.sheet.redraw()  # Используем redraw вместо refresh для надежности
 
     def update_row_height(self, value):
         # Преобразуем значение в целое число, убирая десятичную часть
@@ -177,7 +175,10 @@ class SubtitleFilterApp:
 
     def show_context_menu(self, event):
         # Проверяем, что клик был в столбце "Выбор" (индекс 2)
-        cell = self.sheet.get_cell_coords(event)
+        cell = self.sheet.get_selected_cell()
+        if cell is None:
+            return  # Если ячейка не выбрана, прерываем выполнение
+        row, col = cell
         if cell is None or cell[1] != 2:  # Столбец "Выбор" — это индекс 2
             return
 
@@ -222,6 +223,21 @@ class SubtitleFilterApp:
 
         self.sheet.set_sheet_data(data)
         self.update_potential_count()
+
+    def _on_checkbox_toggle(self, row, col):
+        value = self.sheet.get_cell_data(row, col)
+        new_value = "Да" if value == "Нет" else "Нет"
+        self.sheet.set_cell_data(row, col, new_value)
+
+        key = (self.sheet.get_cell_data(row, 0), self.sheet.get_cell_data(row, 1))
+        # Пропускаем, если ключ пустой (например, для объединенных ячеек)
+        if not key[0] or not key[1]:
+            return
+        self._set_selection(key, row, new_value == "Да")
+
+        # Окрашиваем ячейку
+        color = "lightgreen" if new_value == "Да" else "lightcoral"
+        self.sheet.highlight_cells(row=row, column=col, bg=color, fg="black")
 
     def update_potential_count(self):
         count = 0
@@ -320,6 +336,13 @@ class SubtitleFilterApp:
 
             # Обновление UI из основного потока
             self.root.after(0, lambda: self.sheet.set_sheet_data(data, reset_col_positions=True, reset_row_positions=True))
+            # Настраиваем выпадающий список для столбца "Выбор"
+            # Настраиваем выпадающий список для всего столбца "Выбор" (начиная со второй строки, чтобы пропустить заголовки)
+
+            # Настраиваем выпадающий список для столбца "Выбор"
+            # Настраиваем чекбоксы для столбца "Выбор"
+            self.root.after(100, lambda: self._setup_checkboxes(data))
+            self.root.after(100, self.update_column_widths)  # Обновляем ширину колонок после заполнения
             self.update_potential_count()
 
             if not (analysis['not_found'] or analysis['partial_matches'] or analysis['duplicates']):
@@ -341,6 +364,33 @@ class SubtitleFilterApp:
             self.root.after(0, lambda: self.status_label.config(text=f"Ошибка: {e}", fg="red"))
             if self.enable_logging.get():
                 self.logger.error(f"Ошибка при проверке: {e}")
+
+    def _setup_checkboxes(self, data):
+        print(f"Setting checkbox for row {row}: data={data[row]}")
+        for row in range(len(data)):
+            # Пропускаем строки заголовков групп
+            if data[row][0] in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
+                                "Дубли в фразах"]:
+                continue
+            # Проверяем, что строка содержит данные (не объединенная пустая ячейка)
+            if not data[row][0] and not data[row][1]:
+                continue
+            # Устанавливаем начальное состояние чекбокса
+            checked = (data[row][2] == "Да")
+            self.sheet.create_checkbox(
+                cells=(row, 2),
+                checked_text="Да",
+                unchecked_text="Нет",
+                checked=checked,
+                state="normal",
+                redraw=True,
+                command=lambda r=row: self._on_checkbox_toggle(r, 2)
+            )
+            # Окрашиваем ячейку в зависимости от начального состояния
+            val = self.sheet.get_cell_data(row, 2)
+            color = "lightgreen" if val == "Да" else "lightcoral"
+            self.sheet.highlight_cells(row=row, column=2, bg=color, fg="black")
+        print(f"Checkboxes set for {len(data)} rows")
 
     def bold_headers(self, data):
         for i, row in enumerate(data):
