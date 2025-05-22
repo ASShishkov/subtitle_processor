@@ -8,10 +8,9 @@ def analyze_phrases(subtitles, phrases, threshold):
     not_found_phrases = []
     partial_matches = []
     selected_results = {}
-    unique_phrases = set()  # Для уникальных фраз
-    phrase_order = []  # Для сохранения порядка фраз
+    unique_phrases = set()
+    phrase_order = []
 
-    # Подсчет дубликатов фраз и уникальных фраз
     for phrase in phrases:
         norm_phrase = normalize_text(phrase)
         phrase_counts[norm_phrase] = phrase_counts.get(norm_phrase, 0) + 1
@@ -19,21 +18,19 @@ def analyze_phrases(subtitles, phrases, threshold):
             unique_phrases.add(phrase)
             phrase_order.append(phrase)
 
-    # Анализ совпадений
-    for phrase in unique_phrases:  # Обрабатываем только уникальные фразы
+    for phrase in unique_phrases:
         norm_phrase = normalize_text(phrase)
         matches = []
         for sub in subtitles:
             similarity, matched_phrase, matched_text = find_matches(sub.text, phrase, threshold)
-            if similarity >= 0.95:  # Полные совпадения
+            if similarity >= 0.95:
                 matches.append({
                     'subtitle': sub,
                     'similarity': similarity,
-                    'text': sub.text  # Сохраняем оригинальный текст субтитра
+                    'text': sub.text
                 })
 
         if not matches:
-            # Предлагаем до 3 наиболее подходящих субтитров для ненайденных фраз
             best_matches = []
             for sub in subtitles:
                 similarity, _, matched_text = find_matches(sub.text, phrase, 0.0)
@@ -46,7 +43,6 @@ def analyze_phrases(subtitles, phrases, threshold):
             best_matches.sort(key=lambda x: x['similarity'], reverse=True)
             not_found_phrases.append((phrase, best_matches[:3] if best_matches else []))
         else:
-            # Учитываем только уникальные субтитры
             unique_matches = []
             seen_texts = set()
             for match in matches:
@@ -62,7 +58,6 @@ def analyze_phrases(subtitles, phrases, threshold):
             if 0.95 > max(m['similarity'] for m in matches) >= threshold:
                 partial_matches.append((phrase, [m for m in matches if 0.95 > m['similarity'] >= threshold]))
 
-    # Дубли в фразах (информационно)
     phrase_duplicates = {p: c for p, c in phrase_counts.items() if c > 1}
 
     return {
@@ -72,7 +67,7 @@ def analyze_phrases(subtitles, phrases, threshold):
         'duplicates': phrase_duplicates,
         'multiple_matches': {k: v for k, v in results.items() if len(v) > 1},
         'total_unique_phrases': len(unique_phrases),
-        'phrase_order': phrase_order  # Сохраняем порядок фраз
+        'phrase_order': phrase_order
     }
 
 
