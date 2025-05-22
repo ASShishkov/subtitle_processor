@@ -128,8 +128,11 @@ class SubtitleFilterApp:
         self.sheet.bind("<Button-3>", self.show_context_menu)
 
     def update_row_height(self, value):
-        self.sheet.row_height(row="all", height=int(value))
+        # Преобразуем значение в целое число, убирая десятичную часть
+        height = int(float(value))
+        self.sheet.row_height(row="all", height=height)
         self.sheet.redraw()
+
     def setup_logging(self):
         self.logger = logging.getLogger('SubtitleFilterApp')
         self.logger.setLevel(logging.INFO)
