@@ -38,6 +38,8 @@ class ComboBoxDelegate(QStyledItemDelegate):
         editor.setGeometry(option.rect)
 
 class SubtitleFilterApp(QMainWindow):
+
+
     def __init__(self, parent=None):
         print("=== ИНИЦИАЛИЗАЦИЯ НАЧАЛАСЬ ===")
         super().__init__(parent)
@@ -78,6 +80,16 @@ class SubtitleFilterApp(QMainWindow):
         print("11. load_config завершен")
         print("=== ИНИЦИАЛИЗАЦИЯ ЗАВЕРШЕНА ===")
 
+    def on_single_click(self, index):
+        print(f"Single click on index: row={index.row()}, col={index.column()}")
+        if index.column() == 2:  # Колонка "Выбрано?"
+            current_state = self.table_model.data(index, Qt.CheckStateRole)
+            print(f"Current state: {current_state}")
+            new_state = Qt.CheckState.Unchecked if current_state == Qt.CheckState.Checked else Qt.CheckState.Checked
+            phrase = self.table_model.index(index.row(), 0).data()
+            print(f"Switching state to {new_state} for phrase: {phrase}")
+            self._set_selection((phrase, self.table_model.index(index.row(), 1).data()), index.row(),
+                                new_state == Qt.CheckState.Checked)
     def center_window(self):
         """Центрирует окно на экране"""
         try:
@@ -112,9 +124,9 @@ class SubtitleFilterApp(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # Фрейм для файлов (вертикальное расположение)
+        # Фрейм для файлов (вертикальное расположение, как и было)
         files_frame = QFrame()
-        files_layout = QVBoxLayout(files_frame)  # Используем QVBoxLayout для вертикального размещения
+        files_layout = QVBoxLayout(files_frame)
         main_layout.addWidget(files_frame)
 
         labels = ["Путь к субтитрам (SRT):", "Путь к файлу фраз (TXT):", "Папка вывода:", "Имя выходного файла:"]
@@ -122,10 +134,10 @@ class SubtitleFilterApp(QMainWindow):
         self.path_vars[3].setText("episodes")
 
         for i, label_text in enumerate(labels):
-            row_layout = QHBoxLayout()  # Горизонтальный макет для каждой строки
+            row_layout = QHBoxLayout()
             label = QLabel(label_text)
             entry = self.path_vars[i]
-            entry.setMinimumWidth(500)  # Увеличиваем ширину поля ввода
+            entry.setMinimumWidth(500)
             browse_button = QPushButton("Обзор")
             browse_button.clicked.connect(lambda checked, idx=i: self.browse_file(idx))
             row_layout.addWidget(label)
@@ -133,16 +145,19 @@ class SubtitleFilterApp(QMainWindow):
             row_layout.addWidget(browse_button)
             files_layout.addLayout(row_layout)
 
-        # Фрейм для настроек и действий (на одной линии)
+        # Новый фрейм для настроек и действий (в одну линию)
         options_actions_frame = QFrame()
-        options_actions_layout = QHBoxLayout(options_actions_frame)
+        options_actions_layout = QHBoxLayout(options_actions_frame)  # Горизонтальный макет для двух блоков
         main_layout.addWidget(options_actions_frame)
 
-        # Подфрейм для настроек
+        # Блок 1: Настройки (слева)
         options_frame = QFrame()
-        options_layout = QHBoxLayout(options_frame)
+        options_layout = QVBoxLayout(options_frame)  # Вертикальный макет внутри блока
+        options_frame.setFrameShape(QFrame.StyledPanel)  # Добавляем рамку для визуального разделения
+        options_frame.setStyleSheet("QFrame { border: 1px solid #ccc; padding: 5px; }")
         options_actions_layout.addWidget(options_frame)
 
+        # Элементы настроек
         self.match_threshold = QSlider(Qt.Horizontal)
         self.match_threshold.setRange(50, 100)
         self.match_threshold.setValue(80)
@@ -158,19 +173,28 @@ class SubtitleFilterApp(QMainWindow):
         self.enable_logging = QCheckBox("Включить логирование")
         self.enable_logging.setChecked(True)
 
-        options_layout.addWidget(QLabel("Порог совпадения (%):"))
-        options_layout.addWidget(self.match_threshold)
-        options_layout.addWidget(QLabel("Сортировка:"))
-        options_layout.addWidget(self.sort_option)
+        # Добавляем элементы настроек друг под другом
+        threshold_layout = QHBoxLayout()
+        threshold_layout.addWidget(QLabel("Порог совпадения (%):"))
+        threshold_layout.addWidget(self.match_threshold)
+        options_layout.addLayout(threshold_layout)
+
+        sort_layout = QHBoxLayout()
+        sort_layout.addWidget(QLabel("Сортировка:"))
+        sort_layout.addWidget(self.sort_option)
+        options_layout.addLayout(sort_layout)
+
         options_layout.addWidget(self.save_paths)
         options_layout.addWidget(self.enable_logging)
-        options_layout.addStretch()
 
-        # Подфрейм для действий
+        # Блок 2: Действия (справа)
         actions_frame = QFrame()
-        actions_layout = QHBoxLayout(actions_frame)
+        actions_layout = QVBoxLayout(actions_frame)  # Вертикальный макет внутри блока
+        actions_frame.setFrameShape(QFrame.StyledPanel)
+        actions_frame.setStyleSheet("QFrame { border: 1px solid #ccc; padding: 5px; }")
         options_actions_layout.addWidget(actions_frame)
 
+        # Элементы действий
         self.row_height = QSlider(Qt.Horizontal)
         self.row_height.setRange(20, 60)
         self.row_height.setValue(20)
@@ -183,13 +207,20 @@ class SubtitleFilterApp(QMainWindow):
             QPushButton("Таймкоды", clicked=self.get_timestamps),
             QPushButton("Очистить", clicked=self.clear_fields)
         ]
+
+        # Добавляем кнопки друг под другом
         for button in buttons:
             actions_layout.addWidget(button)
-        actions_layout.addWidget(QLabel("Высота ячейки (px):"))
-        actions_layout.addWidget(self.row_height)
-        actions_layout.addStretch()
 
-        # Оставшаяся часть метода остается без изменений
+        # Добавляем слайдер высоты ячейки
+        row_height_layout = QHBoxLayout()
+        row_height_layout.addWidget(QLabel("Высота ячейки (px):"))
+        row_height_layout.addWidget(self.row_height)
+        actions_layout.addLayout(row_height_layout)
+
+        # Устанавливаем растяжение, чтобы блоки распределялись равномерно
+        options_actions_layout.addStretch()
+
         # Прогресс-бар и статус
         self.progress = QProgressBar()
         self.progress.setMaximum(100)
@@ -204,26 +235,26 @@ class SubtitleFilterApp(QMainWindow):
 
         # Таблица
         self.table_frame = QFrame()
-        layout = QVBoxLayout(self.table_frame)
+        table_layout = QVBoxLayout(self.table_frame)
         main_layout.addWidget(self.table_frame, stretch=1)
 
         self.table_model = QStandardItemModel()
-        self.table_model.setHorizontalHeaderLabels(["Фраза", "Субтитр", "Выбор"])
+        self.table_model.setHorizontalHeaderLabels(["Фраза", "Субтитр", "Выбрано?"])
         self.table_view = QTableView()
         self.table_view.setModel(self.table_model)
         self.table_view.setSelectionBehavior(QTableView.SelectRows)
         self.table_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self.show_context_menu)
-        layout.addWidget(self.table_view)
+        self.table_view.setEditTriggers(QAbstractItemView.AllEditTriggers)  # Разрешаем редактирование по любому клику
+        self.table_view.clicked.connect(self.on_single_click)  # Подключаем обработчик одинарного клика
+        table_layout.addWidget(self.table_view)
 
         self.update_column_widths()
         self.table_view.setStyleSheet("QTableView { margin: 0px; padding: 0px; border: 0px; border-width: 0px; }")
         self.table_view.setContentsMargins(0, 0, 0, 0)
         self.table_view.horizontalHeader().setStyleSheet("QHeaderView { margin: 0px; padding: 0px; }")
-        self.table_view.setContentsMargins(0, 0, 0, 0)
         self.table_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.table_view.setHorizontalScrollMode(QTableView.ScrollPerPixel)
-        self.table_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         # Устанавливаем начальные размеры колонок
         self.update_column_widths()
