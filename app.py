@@ -5,16 +5,37 @@ import os
 import logging
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                              QFrame, QProgressBar, QCheckBox, QComboBox, QSlider, QTableView, QMenu,
-                             QApplication, QMessageBox, QFileDialog)
+                             QApplication, QMessageBox, QFileDialog, QStyledItemDelegate, QAbstractItemView)
 from PyQt5.QtCore import Qt, QTimer
-from PyQt5.QtGui import QStandardItemModel, QStandardItem, QFont
+from PyQt5.QtGui import QStandardItemModel, QStandardItem, QFont, QColor
 from subtitle_processor import analyze_phrases, generate_excerpts, generate_timestamps
 from utils import parse_srt
 
-print("=== ФАЙЛ app.py ЗАГРУЖАЕТСЯ ===")
-print(f"__name__ = {__name__}")
+class ComboBoxDelegate(QStyledItemDelegate):
+    def __init__(self, parent=None):
+        super().__init__(parent)
 
+    def createEditor(self, parent, option, index):
+        combo = QComboBox(parent)
+        combo.addItem("Ничего не выбирать")
+        # Динамически добавляем субтитры (например, до 3 вариантов)
+        for i in range(1, 4):  # Максимум 3 субтитра
+            combo.addItem(f"Субтитр {i}")
+        combo.currentTextChanged.connect(lambda: self.commitData.emit(combo))
+        return combo
 
+    def setEditorData(self, editor, index):
+        value = index.model().data(index, Qt.DisplayRole)
+        if value in ["Субтитр 1", "Субтитр 2", "Субтитр 3", "Ничего не выбирать"]:
+            editor.setCurrentText(value)
+        else:
+            editor.setCurrentText("Ничего не выбирать")
+
+    def setModelData(self, editor, model, index):
+        model.setData(index, editor.currentText(), Qt.DisplayRole)
+
+    def updateEditorGeometry(self, editor, option, index):
+        editor.setGeometry(option.rect)
 
 class SubtitleFilterApp(QMainWindow):
     def __init__(self, parent=None):
@@ -68,6 +89,7 @@ class SubtitleFilterApp(QMainWindow):
 
             # Получаем размеры окна
             window_geometry = self.geometry()
+        # ... (остальной код без изменений)
 
             # Вычисляем позицию для центрирования
             x = (screen_geometry.width() - window_geometry.width()) // 2
@@ -193,6 +215,7 @@ class SubtitleFilterApp(QMainWindow):
         self.table_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self.show_context_menu)
         layout.addWidget(self.table_view)
+
         self.update_column_widths()
         self.table_view.setStyleSheet("QTableView { margin: 0px; padding: 0px; border: 0px; border-width: 0px; }")
         self.table_view.setContentsMargins(0, 0, 0, 0)
@@ -340,14 +363,17 @@ class SubtitleFilterApp(QMainWindow):
     def _set_selection(self, key, row, value):
         model = self.table_model
         phrase = model.index(row, 0).data()
+        subtitle_text = model.index(row, 1).data()
+
+        # Собираем данные таблицы
         data = [model.index(r, c).data() for r in range(model.rowCount()) for c in range(model.columnCount())]
         data = [data[i:i + 3] for i in range(0, len(data), 3)]
 
-        # Определяем, находится ли строка в блоке "Ненайденные фразы"
+        # Проверяем, находится ли строка в блоке "Ненайденные фразы"
         in_not_found_section = False
         for i in range(row, -1, -1):
             if data[i][0] == "Ненайденные фразы":
-                in_not_found_section = Trque
+                in_not_found_section = True
                 break
             if data[i][0] in ["Полностью совпадающие фразы", "Частично совпадающие фразы"]:
                 break
@@ -356,45 +382,28 @@ class SubtitleFilterApp(QMainWindow):
             # Снимаем выбор "Да" с других строк с той же фразой
             for r, row_data in enumerate(data):
                 if row_data[0] == phrase and r != row:
-                    other_key = (phrase, row_data[1])
-                    self.selected_matches[other_key] = False
-                    model.setData(model.index(r, 2), Qt.CheckState.Unchecked, Qt.CheckStateRole)
+                    current_state = model.data(model.index(r, 2), Qt.CheckStateRole)
+                    if current_state == Qt.CheckState.Checked:
+                        model.setData(model.index(r, 2), Qt.CheckState.Unchecked, Qt.CheckStateRole)
 
-        if phrase in self.phrase_groups:
-            group = self.phrase_groups[phrase]
-            if key in group:
-                for k in group:
-                    self.selected_matches[k] = (k == key and value)
-                    group_row = group[k]
-                    if group_row is not None:
-                        data[group_row][2] = "Да" if (k == key and value) else "Нет"
-                        model.setData(model.index(group_row, 2), data[group_row][2])
-        else:
-            for (p, subtitle_text), selected in list(self.selected_matches.items()):
-                if p == phrase and (p, subtitle_text) != key:
-                    self.selected_matches[(p, subtitle_text)] = False
-                    for r, row_data in enumerate(data):
-                        if row_data[0] == phrase and row_data[1] == subtitle_text:
-                            data[r][2] = "Нет"
-                            model.setData(model.index(r, 2), "Нет")
-                            break
-            self.selected_matches[key] = value
-            data[row][2] = "Да" if value else "Нет"
-            model.setData(model.index(row, 2), data[row][2])
+        # Обновляем текущее значение только для чекбокса, текст не трогаем
+        model.setData(model.index(row, 2), Qt.CheckState.Checked if value else Qt.CheckState.Unchecked,
+                      Qt.CheckStateRole)
 
+        self.selected_matches[key] = value
         self.update_potential_count()
 
     def update_potential_count(self):
         count = 0
         selected_phrases = set()
-        for (phrase, _) in self.selected_matches:
-            if self.selected_matches.get((phrase, _), False) and phrase not in self.phrase_groups:
+        for row in range(self.table_model.rowCount()):
+            phrase = self.table_model.index(row, 0).data()
+            choice = self.table_model.index(row, 2).data()
+            if phrase not in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
+                              "Дубли в фразах"] and choice.startswith("Субтитр"):
                 if phrase not in selected_phrases:
                     selected_phrases.add(phrase)
                     count += 1
-        for phrase, group in self.phrase_groups.items():
-            if any(self.selected_matches.get(k, False) for k in group):
-                count += 1
         self.potential_count = count
         self.potential_label.setText(f"Потенциальных отрывков: {count}")
 
@@ -501,8 +510,11 @@ class SubtitleFilterApp(QMainWindow):
             if row[0] not in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
                               "Дубли в фразах"] and (row[0] or row[1]):
                 item = items[2]
+                # Устанавливаем состояние чекбокса
                 item.setData(Qt.CheckState.Checked if row[2] == "Да" else Qt.CheckState.Unchecked, Qt.CheckStateRole)
-                item.setEditable(False)
+                # Устанавливаем пустой текст, чтобы убрать "Да"/"Нет"
+                item.setData("", Qt.DisplayRole)
+                item.setEditable(False)  # Чекбоксы не редактируются напрямую, только через клик
             self.table_model.appendRow(items)
 
         for row in range(self.table_model.rowCount()):
@@ -515,25 +527,18 @@ class SubtitleFilterApp(QMainWindow):
                         font.setBold(True)
                         item.setFont(font)
 
-        # Принудительное обновление размеров колонок после добавления данных
         self.table_view.resizeColumnsToContents()
         self.table_view.resizeRowsToContents()
         self.table_view.doubleClicked.connect(self.on_double_click)
-        # Принудительное обновление виджета перед пересчетом ширины
-        QApplication.processEvents()
         self.update_column_widths()
 
     def on_double_click(self, index):
-        if index.column() == 2:  # Столбец "Выбор"
-            row = index.row()
-            model = self.table_model
-            phrase = model.index(row, 0).data()
-            subtitle_text = model.index(row, 1).data()
-            key = (phrase, subtitle_text)
-            current_state = model.data(index, Qt.CheckStateRole)
+        if index.column() == 2:  # Колонка "Выбор"
+            current_state = self.table_model.data(index, Qt.CheckStateRole)
             new_state = Qt.CheckState.Unchecked if current_state == Qt.CheckState.Checked else Qt.CheckState.Checked
-            model.setData(index, new_state, Qt.CheckStateRole)
-            self._set_selection(key, row, new_state == Qt.CheckState.Checked)
+            phrase = self.table_model.index(index.row(), 0).data()
+            self._set_selection((phrase, self.table_model.index(index.row(), 1).data()), index.row(),
+                                new_state == Qt.CheckState.Checked)
 
     def find_excerpts(self):
         if not self.path_vars[0].text() or not self.path_vars[1].text():
