@@ -10,6 +10,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QFont
 from subtitle_processor import analyze_phrases, generate_excerpts, generate_timestamps
 from utils import parse_srt
+
 print("=== ФАЙЛ app.py ЗАГРУЖАЕТСЯ ===")
 print(f"__name__ = {__name__}")
 
@@ -192,6 +193,14 @@ class SubtitleFilterApp(QMainWindow):
         self.table_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self.show_context_menu)
         layout.addWidget(self.table_view)
+        self.update_column_widths()
+        self.table_view.setStyleSheet("QTableView { margin: 0px; padding: 0px; border: 0px; border-width: 0px; }")
+        self.table_view.setContentsMargins(0, 0, 0, 0)
+        self.table_view.horizontalHeader().setStyleSheet("QHeaderView { margin: 0px; padding: 0px; }")
+        self.table_view.setContentsMargins(0, 0, 0, 0)
+        self.table_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.table_view.setHorizontalScrollMode(QTableView.ScrollPerPixel)
+        self.table_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         # Устанавливаем начальные размеры колонок
         self.update_column_widths()
@@ -202,11 +211,33 @@ class SubtitleFilterApp(QMainWindow):
         self.resize_timer.start(100)
 
     def update_column_widths(self):
-        width = self.table_frame.width()
-        if width > 0:
-            self.table_view.setColumnWidth(0, int(width * 0.45))  # Фраза
-            self.table_view.setColumnWidth(1, int(width * 0.45))  # Субтитр
-            self.table_view.setColumnWidth(2, int(width * 0.10))  # Выбор
+        # Получаем ширину видимой области таблицы (viewport)
+        viewport_width = self.table_view.viewport().width()
+        if viewport_width > 0:
+            # Учитываем ширину вертикальной полосы прокрутки, если она видима
+            scrollbar_width = self.table_view.verticalScrollBar().width() if self.table_view.verticalScrollBar().isVisible() else 0
+            available_width = viewport_width - scrollbar_width
+
+            # Устанавливаем ширину первых двух колонок пропорционально
+            col1_width = int(available_width * 0.45)  # Фраза
+            col2_width = int(available_width * 0.45)  # Субтитр
+
+            # Общая ширина двух колонок
+            used_width = col1_width + col2_width
+            remaining_width = available_width - used_width
+
+            # Корректируем ширину, если места не хватает
+            if remaining_width < 0:
+                col1_width = int(available_width * 0.47)
+                col2_width = int(available_width * 0.47)
+                remaining_width = available_width - col1_width - col2_width
+
+            self.table_view.setColumnWidth(0, col1_width)  # Фраза
+            self.table_view.setColumnWidth(1, col2_width)  # Субтитр
+            self.table_view.setColumnWidth(2, max(remaining_width, 10))  # Выбор (минимальная ширина 10 пикселей)
+
+            # Принудительное обновление, чтобы избежать визуальных артефактов
+            self.table_view.update()
 
     def update_row_height(self, value):
         for row in range(self.table_model.rowCount()):
@@ -316,7 +347,7 @@ class SubtitleFilterApp(QMainWindow):
         in_not_found_section = False
         for i in range(row, -1, -1):
             if data[i][0] == "Ненайденные фразы":
-                in_not_found_section = True
+                in_not_found_section = Trque
                 break
             if data[i][0] in ["Полностью совпадающие фразы", "Частично совпадающие фразы"]:
                 break
@@ -484,9 +515,13 @@ class SubtitleFilterApp(QMainWindow):
                         font.setBold(True)
                         item.setFont(font)
 
+        # Принудительное обновление размеров колонок после добавления данных
         self.table_view.resizeColumnsToContents()
         self.table_view.resizeRowsToContents()
         self.table_view.doubleClicked.connect(self.on_double_click)
+        # Принудительное обновление виджета перед пересчетом ширины
+        QApplication.processEvents()
+        self.update_column_widths()
 
     def on_double_click(self, index):
         if index.column() == 2:  # Столбец "Выбор"
