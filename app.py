@@ -124,14 +124,15 @@ class SubtitleFilterApp(QMainWindow):
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
 
-        # Фрейм для файлов (вертикальное расположение, как и было)
+        # Фрейм для файлов (вертикальное расположение)
         files_frame = QFrame()
         files_layout = QVBoxLayout(files_frame)
         main_layout.addWidget(files_frame)
 
-        labels = ["Путь к субтитрам (SRT):", "Путь к файлу фраз (TXT):", "Папка вывода:", "Имя выходного файла:"]
-        self.path_vars = [QLineEdit() for _ in range(4)]
-        self.path_vars[3].setText("episodes")
+        labels = ["Путь к субтитрам (SRT):", "Путь к файлу английских фраз (TXT):", "Путь к файлу русских фраз (TXT):",
+                  "Папка вывода:", "Имя выходного файла:"]
+        self.path_vars = [QLineEdit() for _ in range(5)]  # Увеличили до 5 полей
+        self.path_vars[4].setText("episodes")
 
         for i, label_text in enumerate(labels):
             row_layout = QHBoxLayout()
@@ -331,11 +332,11 @@ class SubtitleFilterApp(QMainWindow):
             path, _ = QFileDialog.getOpenFileName(self, "Выберите SRT-файл", filter="SRT files (*.srt)")
             if path:
                 self.path_vars[idx].setText(path)
-        elif idx == 1:
+        elif idx in [1, 2]:  # Оба файла фраз
             path, _ = QFileDialog.getOpenFileName(self, "Выберите TXT-файл", filter="Text files (*.txt)")
             if path:
                 self.path_vars[idx].setText(path)
-        elif idx == 2:
+        elif idx == 3:
             path = QFileDialog.getExistingDirectory(self, "Выберите папку вывода")
             if path:
                 self.path_vars[idx].setText(path)
@@ -353,9 +354,10 @@ class SubtitleFilterApp(QMainWindow):
                 if "Paths" in self.config:
                     print("Секция Paths найдена")
                     self.path_vars[0].setText(self.config["Paths"].get("subtitles", ""))
-                    self.path_vars[1].setText(self.config["Paths"].get("phrases", ""))
-                    self.path_vars[2].setText(self.config["Paths"].get("output", ""))
-                    self.path_vars[3].setText(self.config["Paths"].get("filename", "episodes"))
+                    self.path_vars[1].setText(self.config["Paths"].get("phrases_en", ""))
+                    self.path_vars[2].setText(self.config["Paths"].get("phrases_ru", ""))
+                    self.path_vars[3].setText(self.config["Paths"].get("output", ""))
+                    self.path_vars[4].setText(self.config["Paths"].get("filename", "episodes"))
                     print("Пути загружены из конфига")
                 else:
                     print("Секция Paths не найдена")
@@ -368,9 +370,10 @@ class SubtitleFilterApp(QMainWindow):
         if self.save_paths.isChecked():
             self.config["Paths"] = {
                 "subtitles": self.path_vars[0].text(),
-                "phrases": self.path_vars[1].text(),
-                "output": self.path_vars[2].text(),
-                "filename": self.path_vars[3].text()
+                "phrases_en": self.path_vars[1].text(),  # Английский файл
+                "phrases_ru": self.path_vars[2].text(),  # Русский файл
+                "output": self.path_vars[3].text(),
+                "filename": self.path_vars[4].text()
             }
             with open("config.ini", "w", encoding="utf-8") as configfile:
                 self.config.write(configfile)
@@ -449,13 +452,15 @@ class SubtitleFilterApp(QMainWindow):
     def _check_phrases_thread(self):
         try:
             subs = parse_srt(self.path_vars[0].text())
-            with open(self.path_vars[1].text(), 'r', encoding='utf-8') as f:
-                phrases = [line.strip() for line in f if line.strip()]
-            if not subs or not phrases:
+            with open(self.path_vars[1].text(), 'r', encoding='utf-8') as f_en:
+                english_phrases = [line.strip() for line in f_en if line.strip()]
+            with open(self.path_vars[2].text(), 'r', encoding='utf-8') as f_ru:
+                russian_phrases = [line.strip() for line in f_ru if line.strip()]
+            if not subs or not english_phrases or not russian_phrases:
                 raise ValueError("Файлы пусты или некорректны")
 
             threshold = self.match_threshold.value() / 100.0
-            analysis = analyze_phrases(subs, phrases, threshold)
+            analysis = analyze_phrases(subs, english_phrases, russian_phrases, threshold)
             self.phrase_order = analysis['phrase_order']
 
             self.selected_matches.clear()
@@ -468,20 +473,24 @@ class SubtitleFilterApp(QMainWindow):
             for phrase, match in analysis['full_matches'].items():
                 key = (phrase, match['text'])
                 self.selected_matches[key] = True
-                full_matches_items.append((phrase, match['text'], "Да", match['subtitle'].start.ordinal))
+                full_matches_items.append(
+                    (phrase, match['text'], "Да", match['subtitle'].start.ordinal, match['rus_phrase']))
 
-            for phrase, matches in analysis['partial_matches']:
+            for phrase, rus_phrase, matches in analysis['partial_matches']:
                 best_match = max(matches, key=lambda x: x['similarity'])
                 key = (phrase, best_match['text'])
                 self.selected_matches[key] = True
-                partial_matches_items.append((phrase, best_match['text'], "Да", best_match['subtitle'].start.ordinal))
+                partial_matches_items.append(
+                    (phrase, best_match['text'], "Да", best_match['subtitle'].start.ordinal, rus_phrase))
 
-            for phrase, best_matches in analysis['not_found']:
+            for phrase, rus_phrase, best_matches in analysis['not_found']:
                 group = {}
                 for i, match in enumerate(best_matches[:3]):
                     key = (phrase, match['text'])
                     self.selected_matches[key] = (i == 0)
-                    not_found_items.append((phrase, match['text'], "Да" if i == 0 else "Нет", match['subtitle'].start.ordinal, key))
+                    not_found_items.append(
+                        (phrase, match['text'], "Да" if i == 0 else "Нет", match['subtitle'].start.ordinal, rus_phrase,
+                         key))
                     group[key] = None
                 if group:
                     self.phrase_groups[phrase] = group
@@ -497,14 +506,14 @@ class SubtitleFilterApp(QMainWindow):
 
             data = [
                 ["Полностью совпадающие фразы", f"Кол-во: {len(full_matches_items)}", ""],
-                *[(phrase, text, selected) for phrase, text, selected, _ in full_matches_items],
+                *[(phrase, text, selected, _, rus) for phrase, text, selected, _, rus in full_matches_items],
                 ["Частично совпадающие фразы", f"Кол-во: {len(partial_matches_items)}", ""],
-                *[(phrase, text, selected) for phrase, text, selected, _ in partial_matches_items],
+                *[(phrase, text, selected, _, rus) for phrase, text, selected, _, rus in partial_matches_items],
                 ["Ненайденные фразы", f"Кол-во: {len(analysis['not_found'])}", ""]
             ]
             row_index = len(data)
-            for phrase, text, selected, _, key in not_found_items:
-                data.append([phrase, text, selected])
+            for phrase, text, selected, _, rus_phrase, key in not_found_items:
+                data.append([phrase, text, selected, rus_phrase])
                 if phrase in self.phrase_groups and key in self.phrase_groups[phrase]:
                     self.phrase_groups[phrase][key] = row_index
                 row_index += 1
@@ -517,13 +526,15 @@ class SubtitleFilterApp(QMainWindow):
 
             if not (analysis['not_found'] or analysis['partial_matches'] or analysis['duplicates']):
                 total_phrases = analysis['total_unique_phrases'] + len(analysis['duplicates'])
-                self.status_label.setText(f"Проблем нет. Фраз: {total_phrases}, потенциальных отрывков: {self.potential_count}")
+                self.status_label.setText(
+                    f"Проблем нет. Фраз: {total_phrases}, потенциальных отрывков: {self.potential_count}")
                 self.status_label.setStyleSheet("color: green")
             else:
-                issues = sum([len(analysis['not_found']), sum(len(m) for _, m in analysis['partial_matches']),
+                issues = sum([len(analysis['not_found']), sum(len(m) for _, _, m in analysis['partial_matches']),
                               len(analysis['duplicates'])])
                 total_phrases = analysis['total_unique_phrases'] + len(analysis['duplicates'])
-                self.status_label.setText(f"Найдено проблем: {issues}. Фраз: {total_phrases}, потенциальных отрывков: {self.potential_count}")
+                self.status_label.setText(
+                    f"Найдено проблем: {issues}. Фраз: {total_phrases}, потенциальных отрывков: {self.potential_count}")
                 self.status_label.setStyleSheet("color: red")
 
             if self.enable_logging.isChecked():
@@ -537,7 +548,7 @@ class SubtitleFilterApp(QMainWindow):
     def _update_table(self, data):
         self.table_model.removeRows(0, self.table_model.rowCount())
         for row in data:
-            items = [QStandardItem(str(cell)) for cell in row]
+            items = [QStandardItem(str(cell)) if i < 2 else QStandardItem("") for i, cell in enumerate(row)]
             if row[0] not in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
                               "Дубли в фразах"] and (row[0] or row[1]):
                 item = items[2]
@@ -546,6 +557,9 @@ class SubtitleFilterApp(QMainWindow):
                 # Устанавливаем пустой текст, чтобы убрать "Да"/"Нет"
                 item.setData("", Qt.DisplayRole)
                 item.setEditable(False)  # Чекбоксы не редактируются напрямую, только через клик
+                # Сохраняем русскую фразу как пользовательские данные
+                if len(row) > 3:
+                    items[2].setData(row[3], Qt.UserRole)  # Русская фраза в UserRole
             self.table_model.appendRow(items)
 
         for row in range(self.table_model.rowCount()):
@@ -583,28 +597,55 @@ class SubtitleFilterApp(QMainWindow):
     def _find_excerpts_thread(self):
         try:
             subs = parse_srt(self.path_vars[0].text())
-            with open(self.path_vars[1].text(), 'r', encoding='utf-8') as f:
-                phrases = [line.strip() for line in f if line.strip()]
+            with open(self.path_vars[1].text(), 'r', encoding='utf-8') as f_en:
+                english_phrases = [line.strip() for line in f_en if line.strip()]
+            with open(self.path_vars[2].text(), 'r', encoding='utf-8') as f_ru:
+                russian_phrases = [line.strip() for line in f_ru if line.strip()]
             threshold = self.match_threshold.value() / 100.0
-            self.progress.setMaximum(len(phrases))
+            self.progress.setMaximum(len(english_phrases))
 
             selected = {}
-            for (phrase, subtitle_text), is_selected in self.selected_matches.items():
-                if is_selected:
+            selected_eng_phrases = []
+            selected_rus_phrases = []
+            for row in range(self.table_model.rowCount()):
+                phrase = self.table_model.index(row, 0).data()
+                choice = self.table_model.index(row, 2).data(Qt.CheckStateRole)
+                if phrase not in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
+                                  "Дубли в фразах"] and choice == Qt.CheckState.Checked:
+                    rus_phrase = self.table_model.item(row, 2).data(Qt.UserRole)
                     for sub in subs:
-                        if sub.text == subtitle_text:
+                        if sub.text == self.table_model.index(row, 1).data():
                             if phrase not in selected:
                                 selected[phrase] = []
                             selected[phrase].append({'subtitle': sub, 'text': sub.text})
+                            selected_eng_phrases.append(phrase)
+                            selected_rus_phrases.append(rus_phrase)
 
-            selected_count = len([k for k, v in self.selected_matches.items() if v])
-            filename = f"{self.path_vars[3].text()}_sub-{selected_count}"
-            output_dir = self.path_vars[2].text()
+            selected_count = len(selected_eng_phrases)
+            filename = f"{self.path_vars[4].text()}_sub-{selected_count}"
+            output_dir = self.path_vars[3].text()
             if not os.path.exists(output_dir):
                 os.makedirs(output_dir)
             output_path = os.path.join(output_dir, f"Timestamps_{filename}.srt")
-            generate_excerpts(subs, phrases, threshold, output_path, selected)
-            for i in range(len(phrases)):
+            generate_excerpts(subs, english_phrases, threshold, output_path, selected)
+
+            # Создание файлов TXT
+            excerpts_file = os.path.join(output_dir, f"excerpts_{filename}.txt")
+            with open(excerpts_file, 'w', encoding='utf-8') as f_excerpts:
+                for phrase in selected_eng_phrases:
+                    f_excerpts.write(f"{phrase}\n")
+
+            rus_words_file = os.path.join(output_dir, f"russian_words_{filename}.txt")
+            with open(rus_words_file, 'w', encoding='utf-8') as f_rus:
+                for rus_phrase in selected_rus_phrases:
+                    f_rus.write(f"{rus_phrase}\n")
+
+            eng_words_file = os.path.join(output_dir, f"english_words_{filename}.txt")
+            with open(eng_words_file, 'w', encoding='utf-8') as f_eng:
+                for eng_phrase in selected_eng_phrases:
+                    f_eng.write(f"{eng_phrase}\n")
+
+            for i in range(len(english_phrases)):
                 self.progress.setValue(i + 1)
                 QApplication.processEvents()
             self.status_label.setText("Отрывки найдены")
