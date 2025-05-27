@@ -18,14 +18,39 @@ def normalize_text(text):
     normalized = [morph.parse(word)[0].normal_form for word in words]
     return ' '.join(normalized)
 
-def find_matches(subtitle_text, phrase, threshold=0.8):
-    norm_subtitle = normalize_text(subtitle_text)
-    norm_phrase = normalize_text(phrase)
 
-    if re.search(r'\b' + re.escape(norm_phrase) + r'\b', norm_subtitle):
-        return 1.0, norm_phrase, subtitle_text
-    matcher = difflib.SequenceMatcher(None, norm_subtitle, norm_phrase)
-    similarity = matcher.ratio()
+def find_matches(subtitle_text, phrase, threshold=0.5, stop_words=None):
+    if stop_words is None:
+        stop_words = set()
+
+    # Очистка текста от знаков препинания и приведения к нижнему регистру
+    def clean_text(text):
+        text = re.sub(r'[^\w\s]', '', text.lower())
+        return text
+
+    # Получение слов без стоп-слов
+    def get_words(text):
+        words = clean_text(text).split()
+        return [w for w in words if w not in stop_words]
+
+    norm_subtitle = clean_text(subtitle_text)
+    norm_phrase = clean_text(phrase)
+
+    # Точное совпадение для порога >= 0.95
+    if threshold >= 0.95:
+        if norm_subtitle == norm_phrase:
+            return 1.0, norm_phrase, subtitle_text
+        return 0.0, None, None
+
+    # Частичное совпадение (0.5–0.94)
+    subtitle_words = set(get_words(subtitle_text))
+    phrase_words = set(get_words(phrase))
+    common_words = subtitle_words & phrase_words
+
+    if not common_words:
+        return 0.0, None, None
+
+    similarity = len(common_words) / max(len(subtitle_words), len(phrase_words))
     if similarity >= threshold:
         return similarity, norm_phrase, subtitle_text
     return 0.0, None, None

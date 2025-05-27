@@ -174,11 +174,14 @@ class SubtitleFilterApp(QMainWindow):
         self.enable_logging = QCheckBox("Включить логирование")
         self.enable_logging.setChecked(True)
 
-        # Добавляем элементы настроек друг под другом
-        threshold_layout = QHBoxLayout()
-        threshold_layout.addWidget(QLabel("Порог совпадения (%):"))
-        threshold_layout.addWidget(self.match_threshold)
-        options_layout.addLayout(threshold_layout)
+        self.show_matches = QCheckBox("Показать соответствия")  # Новый чекбокс
+        self.show_matches.setChecked(False)
+
+        # Элементы настроек
+        options_layout.addWidget(self.sort_option)
+        options_layout.addWidget(self.save_paths)
+        options_layout.addWidget(self.enable_logging)
+        options_layout.addWidget(self.show_matches)  # Добавляем чекбокс
 
         sort_layout = QHBoxLayout()
         sort_layout.addWidget(QLabel("Сортировка:"))
@@ -359,12 +362,24 @@ class SubtitleFilterApp(QMainWindow):
                     self.path_vars[3].setText(self.config["Paths"].get("output", ""))
                     self.path_vars[4].setText(self.config["Paths"].get("filename", "episodes"))
                     print("Пути загружены из конфига")
+                if "StopWords" in self.config:
+                    self.stop_words = set(self.config["StopWords"].get("words", "").split(","))
+                    print("Стоп-слова загружены из конфига")
                 else:
-                    print("Секция Paths не найдена")
+                    self.stop_words = set(
+                        ["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
+                         "и", "в", "на", "с", "к", "у", "по", "из", "а", "но", "что", "это", "как", "для"])
+                    print("Используются стоп-слова по умолчанию")
             except Exception as e:
                 print(f"Ошибка при чтении конфига: {e}")
+                self.stop_words = set(
+                    ["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
+                     "и", "в", "на", "с", "к", "у", "по", "из", "а", "но", "что", "это", "как", "для"])
         else:
             print("Файл config.ini не найден")
+            self.stop_words = set(
+                ["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
+                 "и", "в", "на", "с", "к", "у", "по", "из", "а", "но", "что", "это", "как", "для"])
 
     def save_config(self):
         if self.save_paths.isChecked():
@@ -459,7 +474,7 @@ class SubtitleFilterApp(QMainWindow):
             if not subs or not english_phrases or not russian_phrases:
                 raise ValueError("Файлы пусты или некорректны")
 
-            threshold = self.match_threshold.value() / 100.0
+            threshold = 0.5  # Фиксированный порог для частичных совпадений
             analysis = analyze_phrases(subs, english_phrases, russian_phrases, threshold)
             self.phrase_order = analysis['phrase_order']
 
@@ -557,6 +572,15 @@ class SubtitleFilterApp(QMainWindow):
                 item.setEditable(False)
                 if len(row) > 3:
                     items[2].setData(row[3], Qt.UserRole)
+                if self.show_matches.isChecked():
+                    # Выделяем совпадающие слова
+                    phrase = row[0]
+                    subtitle = row[1]
+                    matched_words = self._get_matched_words(phrase, subtitle)
+                    phrase_html = self._highlight_words(phrase, matched_words)
+                    subtitle_html = self._highlight_words(subtitle, matched_words)
+                    items[0].setText(phrase_html)
+                    items[1].setText(subtitle_html)
             self.table_model.appendRow(items)
 
         for row in range(self.table_model.rowCount()):
@@ -565,15 +589,32 @@ class SubtitleFilterApp(QMainWindow):
                 for col in range(3):
                     item = self.table_model.item(row, col)
                     if item:
-                        font = QFont()  # Создаем новый объект QFont
+                        font = QFont()
                         font.setBold(True)
                         item.setFont(font)
 
         self.table_view.resizeColumnsToContents()
         self.table_view.resizeRowsToContents()
         self.table_view.doubleClicked.connect(self.on_double_click)
-        self.table_view.update()  # Принудительное обновление таблицы
+        self.table_view.update()
         self.update_column_widths()
+
+    def _get_matched_words(self, phrase, subtitle):
+        from utils import normalize_text
+        phrase_words = set(normalize_text(phrase).split()) - self.stop_words
+        subtitle_words = set(normalize_text(subtitle).split()) - self.stop_words
+        return phrase_words & subtitle_words
+
+    def _highlight_words(self, text, matched_words):
+        words = text.split()
+        result = []
+        for word in words:
+            norm_word = normalize_text(word)
+            if norm_word in matched_words:
+                result.append(f"<b>{word}</b>")
+            else:
+                result.append(word)
+        return " ".join(result)
 
     def on_double_click(self, index):
         if index.column() == 2:  # Колонка "Выбор"

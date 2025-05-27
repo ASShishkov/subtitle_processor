@@ -1,6 +1,6 @@
 from utils import parse_srt, normalize_text, find_matches, format_srt_entry, calculate_exact_timestamps, sort_subtitles_by_time
 
-def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold):
+def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold, stop_words=None):
     results = {}
     phrase_counts = {}
     not_found_phrases = []
@@ -9,7 +9,6 @@ def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold):
     unique_phrases = set()
     phrase_order = []
 
-    # Обработка английских фраз
     for phrase in english_phrases:
         norm_phrase = normalize_text(phrase)
         phrase_counts[norm_phrase] = phrase_counts.get(norm_phrase, 0) + 1
@@ -17,7 +16,6 @@ def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold):
             unique_phrases.add(phrase)
             phrase_order.append(phrase)
 
-    # Проверка соответствия русского и английского списков
     if len(english_phrases) != len(russian_phrases):
         raise ValueError("Количество английских и русских фраз должно совпадать")
 
@@ -27,19 +25,26 @@ def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold):
         norm_phrase = normalize_text(eng_phrase)
         matches = []
         for sub in subtitles:
-            similarity, matched_phrase, matched_text = find_matches(sub.text, eng_phrase, threshold)
+            similarity, matched_phrase, matched_text = find_matches(sub.text, eng_phrase, threshold, stop_words)
             if similarity >= 0.95:
                 matches.append({
                     'subtitle': sub,
                     'similarity': similarity,
                     'text': sub.text,
-                    'rus_phrase': rus_phrase  # Сохраняем соответствующую русскую фразу
+                    'rus_phrase': rus_phrase
+                })
+            elif 0.5 <= similarity < 0.95:
+                matches.append({
+                    'subtitle': sub,
+                    'similarity': similarity,
+                    'text': sub.text,
+                    'rus_phrase': rus_phrase
                 })
 
         if not matches:
             best_matches = []
             for sub in subtitles:
-                similarity, _, matched_text = find_matches(sub.text, eng_phrase, 0.0)
+                similarity, _, matched_text = find_matches(sub.text, eng_phrase, 0.0, stop_words)
                 if similarity > 0:
                     best_matches.append({
                         'subtitle': sub,
@@ -62,8 +67,12 @@ def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold):
             else:
                 selected_results[eng_phrase] = unique_matches[0]
 
-            if 0.95 > max(m['similarity'] for m in matches) >= threshold:
-                partial_matches.append((eng_phrase, rus_phrase, [m for m in matches if 0.95 > m['similarity'] >= threshold]))
+            partial = [m for m in unique_matches if 0.5 <= m['similarity'] < 0.95]
+            if partial:
+                partial_matches.append((eng_phrase, rus_phrase, partial))
+
+    # Сортировка частичных совпадений по схожести
+    partial_matches.sort(key=lambda x: max(m['similarity'] for m in x[2]), reverse=True)
 
     phrase_duplicates = {p: c for p, c in phrase_counts.items() if c > 1}
 
