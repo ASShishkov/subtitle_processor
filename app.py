@@ -608,6 +608,9 @@ class SubtitleFilterApp(QMainWindow):
             selected_eng_phrases = []
             selected_rus_phrases = []
             seen_phrases = set()  # Множество для отслеживания уникальных фраз
+            # Создаем словарь для соответствия английских и русских фраз
+            phrase_pairs = dict(zip(english_phrases, russian_phrases))
+
             for row in range(self.table_model.rowCount()):
                 phrase = self.table_model.index(row, 0).data()
                 choice = self.table_model.index(row, 2).data(Qt.CheckStateRole)
@@ -615,14 +618,14 @@ class SubtitleFilterApp(QMainWindow):
                                   "Дубли в фразах"] and choice == Qt.CheckState.Checked:
                     if phrase not in seen_phrases:  # Проверяем уникальность фразы
                         seen_phrases.add(phrase)
-                        rus_phrase = self.table_model.item(row, 2).data(Qt.UserRole)
                         for sub in subs:
                             if sub.text == self.table_model.index(row, 1).data():
                                 if phrase not in selected:
                                     selected[phrase] = []
                                 selected[phrase].append({'subtitle': sub, 'text': sub.text})
                                 selected_eng_phrases.append(phrase)
-                                selected_rus_phrases.append(rus_phrase)
+                                # Добавляем соответствующую русскую фразу из phrase_pairs
+                                selected_rus_phrases.append(phrase_pairs.get(phrase, ""))
                                 break  # Прерываем цикл после добавления первого подходящего субтитра
 
             selected_count = len(selected_eng_phrases)
