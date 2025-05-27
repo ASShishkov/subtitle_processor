@@ -607,19 +607,23 @@ class SubtitleFilterApp(QMainWindow):
             selected = {}
             selected_eng_phrases = []
             selected_rus_phrases = []
+            seen_phrases = set()  # Множество для отслеживания уникальных фраз
             for row in range(self.table_model.rowCount()):
                 phrase = self.table_model.index(row, 0).data()
                 choice = self.table_model.index(row, 2).data(Qt.CheckStateRole)
                 if phrase not in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
                                   "Дубли в фразах"] and choice == Qt.CheckState.Checked:
-                    rus_phrase = self.table_model.item(row, 2).data(Qt.UserRole)
-                    for sub in subs:
-                        if sub.text == self.table_model.index(row, 1).data():
-                            if phrase not in selected:
-                                selected[phrase] = []
-                            selected[phrase].append({'subtitle': sub, 'text': sub.text})
-                            selected_eng_phrases.append(phrase)
-                            selected_rus_phrases.append(rus_phrase)
+                    if phrase not in seen_phrases:  # Проверяем уникальность фразы
+                        seen_phrases.add(phrase)
+                        rus_phrase = self.table_model.item(row, 2).data(Qt.UserRole)
+                        for sub in subs:
+                            if sub.text == self.table_model.index(row, 1).data():
+                                if phrase not in selected:
+                                    selected[phrase] = []
+                                selected[phrase].append({'subtitle': sub, 'text': sub.text})
+                                selected_eng_phrases.append(phrase)
+                                selected_rus_phrases.append(rus_phrase)
+                                break  # Прерываем цикл после добавления первого подходящего субтитра
 
             selected_count = len(selected_eng_phrases)
             filename = f"{self.path_vars[4].text()}_sub-{selected_count}"
@@ -630,11 +634,6 @@ class SubtitleFilterApp(QMainWindow):
             generate_excerpts(subs, english_phrases, threshold, output_path, selected)
 
             # Создание файлов TXT
-            excerpts_file = os.path.join(output_dir, f"excerpts_{filename}.txt")
-            with open(excerpts_file, 'w', encoding='utf-8') as f_excerpts:
-                for phrase in selected_eng_phrases:
-                    f_excerpts.write(f"{phrase}\n")
-
             rus_words_file = os.path.join(output_dir, f"russian_words_{filename}.txt")
             with open(rus_words_file, 'w', encoding='utf-8') as f_rus:
                 for rus_phrase in selected_rus_phrases:
