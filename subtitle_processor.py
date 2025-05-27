@@ -83,11 +83,11 @@ def generate_excerpts(subtitles, phrases, threshold, output_path, selected_match
         sorted_matches = []
         for phrase, match_list in selected_matches.items():
             for match in match_list:
-                sorted_matches.append((phrase, match['subtitle'], match['text']))
+                sorted_matches.append((phrase, match['subtitle'], match['text']))  # Используем текст из selected
         sorted_matches.sort(key=lambda x: x[1].start.ordinal)
 
         for phrase, sub, text in sorted_matches:
-            f.write(format_srt_entry(index, sub.start, sub.end, text))
+            f.write(format_srt_entry(index, sub.start, sub.end, text))  # Записываем текст из таблицы
             index += 1
 
 def generate_timestamps(subtitles, phrases, threshold, output_path, selected_matches):

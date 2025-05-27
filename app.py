@@ -550,31 +550,29 @@ class SubtitleFilterApp(QMainWindow):
         for row in data:
             items = [QStandardItem(str(cell)) if i < 2 else QStandardItem("") for i, cell in enumerate(row)]
             if row[0] not in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
-                              "Дубли в фразах"] and (row[0] or row[1]):
+                              "Дубли в фразах (информационно)"] and (row[0] or row[1]):
                 item = items[2]
-                # Устанавливаем состояние чекбокса
                 item.setData(Qt.CheckState.Checked if row[2] == "Да" else Qt.CheckState.Unchecked, Qt.CheckStateRole)
-                # Устанавливаем пустой текст, чтобы убрать "Да"/"Нет"
                 item.setData("", Qt.DisplayRole)
-                item.setEditable(False)  # Чекбоксы не редактируются напрямую, только через клик
-                # Сохраняем русскую фразу как пользовательские данные
+                item.setEditable(False)
                 if len(row) > 3:
-                    items[2].setData(row[3], Qt.UserRole)  # Русская фраза в UserRole
+                    items[2].setData(row[3], Qt.UserRole)
             self.table_model.appendRow(items)
 
         for row in range(self.table_model.rowCount()):
             if self.table_model.index(row, 0).data() in ["Полностью совпадающие фразы", "Частично совпадающие фразы",
-                                                         "Ненайденные фразы", "Дубли в фразах"]:
+                                                         "Ненайденные фразы", "Дубли в фразах (информационно)"]:
                 for col in range(3):
                     item = self.table_model.item(row, col)
                     if item:
-                        font = item.font()
+                        font = QFont()  # Создаем новый объект QFont
                         font.setBold(True)
                         item.setFont(font)
 
         self.table_view.resizeColumnsToContents()
         self.table_view.resizeRowsToContents()
         self.table_view.doubleClicked.connect(self.on_double_click)
+        self.table_view.update()  # Принудительное обновление таблицы
         self.update_column_widths()
 
     def on_double_click(self, index):
@@ -608,25 +606,27 @@ class SubtitleFilterApp(QMainWindow):
             selected_eng_phrases = []
             selected_rus_phrases = []
             seen_phrases = set()  # Множество для отслеживания уникальных фраз
-            # Создаем словарь для соответствия английских и русских фраз
             phrase_pairs = dict(zip(english_phrases, russian_phrases))
 
             for row in range(self.table_model.rowCount()):
                 phrase = self.table_model.index(row, 0).data()
                 choice = self.table_model.index(row, 2).data(Qt.CheckStateRole)
-                if phrase not in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
-                                  "Дубли в фразах"] and choice == Qt.CheckState.Checked:
-                    if phrase not in seen_phrases:  # Проверяем уникальность фразы
-                        seen_phrases.add(phrase)
-                        for sub in subs:
-                            if sub.text == self.table_model.index(row, 1).data():
-                                if phrase not in selected:
-                                    selected[phrase] = []
-                                selected[phrase].append({'subtitle': sub, 'text': sub.text})
-                                selected_eng_phrases.append(phrase)
-                                # Добавляем соответствующую русскую фразу из phrase_pairs
-                                selected_rus_phrases.append(phrase_pairs.get(phrase, ""))
-                                break  # Прерываем цикл после добавления первого подходящего субтитра
+                # Игнорируем заголовочные строки
+                if phrase in ["Полностью совпадающие фразы", "Частично совпадающие фразы",
+                              "Ненайденные фразы", "Дубли в фразах"] or choice != Qt.CheckState.Checked:
+                    continue
+                if phrase not in seen_phrases:  # Проверяем уникальность фразы
+                    seen_phrases.add(phrase)
+                    subtitle_text = self.table_model.index(row, 1).data()  # Текст субтитра из таблицы
+                    for sub in subs:
+                        if sub.text == subtitle_text:  # Сравниваем с текстом из таблицы
+                            if phrase not in selected:
+                                selected[phrase] = []
+                            selected[phrase].append(
+                                {'subtitle': sub, 'text': subtitle_text})  # Используем текст из таблицы
+                            selected_eng_phrases.append(phrase)
+                            selected_rus_phrases.append(phrase_pairs.get(phrase, ""))
+                            break  # Прерываем после первого подходящего субтитра
 
             selected_count = len(selected_eng_phrases)
             filename = f"{self.path_vars[4].text()}_sub-{selected_count}"
