@@ -11,6 +11,7 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QFont, QColor
 from subtitle_processor import analyze_phrases, generate_excerpts, generate_timestamps
 from utils import parse_srt
+import pysrt
 
 class ComboBoxDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
@@ -222,11 +223,16 @@ class SubtitleFilterApp(QMainWindow):
         manual_button.clicked.connect(self.manual_find_phrase)
         actions_layout.addWidget(manual_button)
 
-        # Добавляем слайдер высоты ячейки
-        row_height_layout = QHBoxLayout()
-        row_height_layout.addWidget(QLabel("Высота ячейки (px):"))
-        row_height_layout.addWidget(self.row_height)
-        actions_layout.addLayout(row_height_layout)
+        # Добавляем кнопку "Изменить таймкоды"
+        modify_timestamps_button = QPushButton("Изменить таймкоды")
+        modify_timestamps_button.clicked.connect(self.modify_timestamps)
+        actions_layout.addWidget(modify_timestamps_button)
+
+        # Добавляем чекбокс
+        self.adjust_row_height = QCheckBox("Высота по содержимому")
+        self.adjust_row_height.setChecked(False)
+        self.adjust_row_height.stateChanged.connect(self.update_row_height)
+        actions_layout.addWidget(self.adjust_row_height)
 
         # Устанавливаем растяжение, чтобы блоки распределялись равномерно
         options_actions_layout.addStretch()
@@ -253,6 +259,7 @@ class SubtitleFilterApp(QMainWindow):
         self.table_view = QTableView()
         self.table_view.setModel(self.table_model)
         self.table_view.setSelectionBehavior(QTableView.SelectRows)
+        self.table_view.setSelectionMode(QTableView.MultiSelection)
         self.table_view.setContextMenuPolicy(Qt.CustomContextMenu)
         self.table_view.customContextMenuRequested.connect(self.show_context_menu)
         self.table_view.setEditTriggers(QAbstractItemView.AllEditTriggers)  # Разрешаем редактирование по любому клику
@@ -306,10 +313,12 @@ class SubtitleFilterApp(QMainWindow):
             # Принудительное обновление, чтобы избежать визуальных артефактов
             self.table_view.update()
 
-    def update_row_height(self, value):
-        for row in range(self.table_model.rowCount()):
-            self.table_view.setRowHeight(row, value)
-        self.table_view.resizeRowsToContents()
+    def update_row_height(self):
+        if self.adjust_row_height.isChecked():
+            self.table_view.resizeRowsToContents()
+        else:
+            for row in range(self.table_model.rowCount()):
+                self.table_view.setRowHeight(row, 20)
 
     def update_threshold(self, value):
         pass  # Логика обновления порога будет в check_phrases
@@ -408,9 +417,14 @@ class SubtitleFilterApp(QMainWindow):
         subtitle_text = model.index(row, 1).data()
         key = (phrase, subtitle_text)
 
+        # Проверяем, является ли строка ручной
+        is_manual = model.index(row, 2).data(Qt.UserRole + 1)
+
         menu = QMenu()
         menu.addAction("Да", lambda: self._set_selection(key, row, True))
         menu.addAction("Нет", lambda: self._set_selection(key, row, False))
+        if is_manual:
+            menu.addAction("Удалить строку", lambda: self._delete_row(row, key, phrase))
         menu.exec_(self.table_view.viewport().mapToGlobal(pos))
 
     def _set_selection(self, key, row, value):
@@ -527,11 +541,13 @@ class SubtitleFilterApp(QMainWindow):
 
             # Формирование данных для таблицы
             data = [
-                ["Полностью совпадающие фразы", f"Кол-во: {len(full_matches_items)}", ""],
-                *[(phrase, text, selected, _, rus) for phrase, text, selected, _, rus in full_matches_items],
-                ["Частично совпадающие фразы", f"Кол-во: {len(partial_matches_items)}", ""],
-                *[(phrase, text, selected, _, rus) for phrase, text, selected, _, rus in partial_matches_items],
-                ["Ненайденные фразы", f"Кол-во: {len(analysis['not_found'])}", ""]
+                ["Полностью совпадающие фразы", f"Кол-во: {len(full_matches_items)}", "", ""],
+                # Добавлена пустая строка для русской фразы
+                *[(phrase, text, selected, rus) for phrase, text, selected, _, rus in full_matches_items],
+                ["Частично совпадающие фразы", f"Кол-во: {len(partial_matches_items)}", "", ""],
+                # Добавлена пустая строка
+                *[(phrase, text, selected, rus) for phrase, text, selected, _, rus in partial_matches_items],
+                ["Ненайденные фразы", f"Кол-во: {len(analysis['not_found'])}", "", ""],  # Добавлена пустая строка
             ]
             row_index = len(data)
             for phrase, text, selected, _, rus_phrase, key in not_found_items:
@@ -540,9 +556,10 @@ class SubtitleFilterApp(QMainWindow):
                     self.phrase_groups[phrase][key] = row_index
                 row_index += 1
 
-            data.append(["Дубли в фразах (информационно)", f"Кол-во: {len(analysis['duplicates'])}", ""])
+            data.append(["Дубли в фразах (информационно)", f"Кол-во: {len(analysis['duplicates'])}", "",
+                         ""])  # Добавлена пустая строка
             for phrase, count in analysis['duplicates'].items():
-                data.append([phrase, f"Встречается {count} раз", ""])
+                data.append([phrase, f"Встречается {count} раз", "", ""])  # Пустая строка для русских фраз
 
             self._update_table(data)
 
@@ -570,11 +587,32 @@ class SubtitleFilterApp(QMainWindow):
 
     def manual_find_phrase(self):
         """Функция для ручного поиска и добавления отрывка."""
-        # Открываем файл субтитров в блокноте
         srt_path = self.path_vars[0].text()
         if not os.path.exists(srt_path):
             QMessageBox.warning(self, "Ошибка", "Файл субтитров не найден!")
             return
+
+        subprocess.Popen(['notepad.exe', srt_path])
+
+        phrase, ok = QInputDialog.getText(self, "Ручной поиск", "Введите текст отрывка, найденного вручную:")
+        if ok and phrase:
+            subs = parse_srt(srt_path)
+            for sub in subs:
+                if phrase.lower() in sub.text.lower():
+                    key = (phrase, sub.text)
+                    self.selected_matches[key] = True
+                    self.phrase_groups[phrase] = {key: self.table_model.rowCount()}
+                    self._update_table_row(phrase, sub.text, "Да", sub.start.ordinal, "",
+                                           is_manual=True)  # Добавлен флаг
+                    QMessageBox.information(self, "Успех", f"Отрывок '{phrase}' добавлен с временем {sub.start}!")
+                    return
+
+            key = (phrase, "Ручное добавление")
+            self.selected_matches[key] = False
+            self.phrase_groups[phrase] = {key: self.table_model.rowCount()}
+            self._update_table_row(phrase, "Ручное добавление", "Нет", 0, "", is_manual=True)  # Добавлен флаг
+            QMessageBox.warning(self, "Предупреждение",
+                                f"Точное совпадение для '{phrase}' не найдено. Добавлено как ручное.")
 
         subprocess.Popen(['notepad.exe', srt_path])
 
@@ -601,31 +639,26 @@ class SubtitleFilterApp(QMainWindow):
             QMessageBox.warning(self, "Предупреждение",
                                 f"Точное совпадение для '{phrase}' не найдено. Добавлено как ручное.")
 
-    def _update_table_row(self, phrase, text, selected, sort_key, rus_phrase):
+    def _update_table_row(self, phrase, text, selected, sort_key, rus_phrase, is_manual=False):
         """Обновление таблицы с новой строкой."""
         row_position = self.table_model.rowCount()
         self.table_model.insertRow(row_position)
 
-        # Создаём элементы для строки
         phrase_item = QStandardItem(phrase)
         text_item = QStandardItem(text)
         selected_item = QStandardItem("")
         rus_item = QStandardItem(rus_phrase if rus_phrase else "")
 
-        # Настраиваем чекбокс
         selected_item.setData(Qt.CheckState.Checked if selected == "Да" else Qt.CheckState.Unchecked, Qt.CheckStateRole)
         selected_item.setEditable(False)
-
-        # Добавляем пользовательские данные для сортировки
         selected_item.setData(sort_key, Qt.UserRole)
+        selected_item.setData(is_manual, Qt.UserRole + 1)  # Флаг ручного добавления
 
-        # Добавляем строку в таблицу
         self.table_model.setItem(row_position, 0, phrase_item)
         self.table_model.setItem(row_position, 1, text_item)
         self.table_model.setItem(row_position, 2, selected_item)
         self.table_model.setItem(row_position, 3, rus_item)
 
-        # Обновляем размеры
         self.table_view.resizeRowsToContents()
         self.update_column_widths()
 
@@ -702,34 +735,42 @@ class SubtitleFilterApp(QMainWindow):
                 english_phrases = [line.strip() for line in f_en if line.strip()]
             with open(self.path_vars[2].text(), 'r', encoding='utf-8') as f_ru:
                 russian_phrases = [line.strip() for line in f_ru if line.strip()]
-            threshold = self.match_threshold.value() / 100.0
+            threshold = 0.5  # Убрали зависимость от слайдера
             self.progress.setMaximum(len(english_phrases))
 
             selected = {}
-            selected_eng_phrases = []
-            selected_rus_phrases = []
-            seen_phrases = set()  # Множество для отслеживания уникальных фраз
             phrase_pairs = dict(zip(english_phrases, russian_phrases))
+
+            # Список для хранения пар (время, английская фраза, русская фраза, субтитр)
+            selected_phrases_with_time = []
 
             for row in range(self.table_model.rowCount()):
                 phrase = self.table_model.index(row, 0).data()
                 choice = self.table_model.index(row, 2).data(Qt.CheckStateRole)
-                # Игнорируем заголовочные строки
                 if phrase in ["Полностью совпадающие фразы", "Частично совпадающие фразы",
                               "Ненайденные фразы", "Дубли в фразах"] or choice != Qt.CheckState.Checked:
                     continue
-                if phrase not in seen_phrases:  # Проверяем уникальность фразы
-                    seen_phrases.add(phrase)
-                    subtitle_text = self.table_model.index(row, 1).data()  # Текст субтитра из таблицы
-                    for sub in subs:
-                        if sub.text == subtitle_text:  # Сравниваем с текстом из таблицы
-                            if phrase not in selected:
-                                selected[phrase] = []
-                            selected[phrase].append(
-                                {'subtitle': sub, 'text': subtitle_text})  # Используем текст из таблицы
-                            selected_eng_phrases.append(phrase)
-                            selected_rus_phrases.append(phrase_pairs.get(phrase, ""))
-                            break  # Прерываем после первого подходящего субтитра
+
+                subtitle_text = self.table_model.index(row, 1).data()
+                for sub in subs:
+                    if sub.text == subtitle_text:
+                        if phrase not in selected:
+                            selected[phrase] = []
+                        selected[phrase].append({'subtitle': sub, 'text': subtitle_text})
+                        selected_phrases_with_time.append((
+                            sub.start.ordinal,  # Время для сортировки
+                            phrase,  # Английская фраза
+                            phrase_pairs.get(phrase, ""),  # Русская фраза
+                            sub  # Субтитр
+                        ))
+                        break
+
+            # Сортируем по времени
+            selected_phrases_with_time.sort(key=lambda x: x[0])
+
+            # Формируем отсортированные списки
+            selected_eng_phrases = [item[1] for item in selected_phrases_with_time]
+            selected_rus_phrases = [item[2] for item in selected_phrases_with_time]
 
             selected_count = len(selected_eng_phrases)
             filename = f"{self.path_vars[4].text()}_sub-{selected_count}"
@@ -815,6 +856,65 @@ class SubtitleFilterApp(QMainWindow):
         finally:
             self.is_running = False
             self.save_config()
+
+    def modify_timestamps(self):
+        """Изменение таймкодов выбранных субтитров."""
+        selected_rows = [index.row() for index in self.table_view.selectionModel().selectedRows()]
+        if not selected_rows:
+            QMessageBox.warning(self, "Ошибка", "Выберите хотя бы одну строку!")
+            return
+
+        # Запрашиваем количество секунд для начала и конца
+        start_secs, ok1 = QInputDialog.getDouble(self, "Изменить таймкоды",
+                                                 "Секунды в начало (положительное или отрицательное):", 0, -60, 60, 2)
+        if not ok1:
+            return
+        end_secs, ok2 = QInputDialog.getDouble(self, "Изменить таймкоды",
+                                               "Секунды в конец (положительное или отрицательное):", 0, -60, 60, 2)
+        if not ok2:
+            return
+
+        # Обрабатываем каждую выбранную строку
+        for row in selected_rows:
+            phrase = self.table_model.index(row, 0).data()
+            subtitle_text = self.table_model.index(row, 1).data()
+            key = (phrase, subtitle_text)
+
+            # Проверяем, что строка не является заголовком
+            if phrase in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
+                          "Дубли в фразах (информационно)"]:
+                continue
+
+            # Находим субтитр в исходном файле
+            subs = parse_srt(self.path_vars[0].text())
+            for sub in subs:
+                if sub.text == subtitle_text:
+                    # Изменяем таймкоды
+                    start_time = sub.start
+                    end_time = sub.end
+
+                    # Конвертируем время в миллисекунды
+                    start_ms = start_time.ordinal + int(start_secs * 1000)
+                    end_ms = end_time.ordinal + int(end_secs * 1000)
+
+                    # Проверяем, чтобы время не стало отрицательным
+                    start_ms = max(0, start_ms)
+                    end_ms = max(start_ms + 1, end_ms)  # Конец должен быть позже начала
+
+                    # Обновляем субтитр
+                    sub.start = pysrt.SubRipTime.from_ordinal(start_ms)
+                    sub.end = pysrt.SubRipTime.from_ordinal(end_ms)
+
+                    # Обновляем данные в таблице
+                    self.table_model.setItem(row, 1, QStandardItem(sub.text))
+                    self.table_model.item(row, 2).setData(sub.start.ordinal, Qt.UserRole)
+                    break
+
+        QMessageBox.information(self, "Успех", f"Таймкоды изменены для {len(selected_rows)} строк!")
+        if self.enable_logging.isChecked():
+            self.logger.info(
+                f"Изменены таймкоды для {len(selected_rows)} строк: {start_secs} сек в начало, {end_secs} сек в конец")
+
 
     def clear_fields(self):
         self.table_model.removeRows(0, self.table_model.rowCount())
