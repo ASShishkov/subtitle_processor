@@ -1,10 +1,50 @@
 import pysrt
 import pymorphy3
-import re
 import difflib
 from datetime import datetime, timedelta
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
+import re
 
 morph = pymorphy3.MorphAnalyzer()
+
+def find_matches(subtitle_text, phrase, threshold=0.5, stop_words=None, whitelist=None):
+    if stop_words is None:
+        stop_words = set()
+    if whitelist is None:
+        whitelist = set(["not", "yes", "out"])  # Белый список важных слов
+
+    # Очистка текста от знаков препинания и приведения к нижнему регистру
+    def clean_text(text):
+        text = re.sub(r'[^\w\s\']', '', text.lower())  # Оставляем апострофы
+        return text
+
+    # Фильтрация слов (< 3 букв, стоп-слова, с учётом белого списка)
+    def filter_words(text):
+        words = clean_text(text).split()
+        return ' '.join([w for w in words if (len(w) >= 3 or w in whitelist) and w not in stop_words])
+
+    # Нормализация текста
+    norm_subtitle = filter_words(subtitle_text)
+    norm_phrase = filter_words(phrase)
+
+    # Проверка на точное совпадение (threshold >= 0.95)
+    if threshold >= 0.95:
+        if clean_text(phrase) in clean_text(subtitle_text):
+            return 1.0, norm_phrase, subtitle_text
+        return 0.0, None, None
+
+    # TF-IDF векторизация
+    if not norm_subtitle or not norm_phrase:  # Если после фильтрации текст пустой
+        return 0.0, None, None
+
+    vectorizer = TfidfVectorizer()
+    tfidf_matrix = vectorizer.fit_transform([norm_subtitle, norm_phrase])
+    similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
+
+    if similarity >= threshold:
+        return similarity, norm_phrase, subtitle_text
+    return 0.0, None, None
 
 def parse_srt(file_path):
     try:
@@ -28,17 +68,17 @@ def find_matches(subtitle_text, phrase, threshold=0.5, stop_words=None):
         text = re.sub(r'[^\w\s]', '', text.lower())
         return text
 
-    # Получение слов без стоп-слов
+    # Получение слов без стоп-слов и слов короче 4 букв
     def get_words(text):
         words = clean_text(text).split()
-        return [w for w in words if w not in stop_words]
+        return [w for w in words if w not in stop_words and len(w) > 3]
 
     norm_subtitle = clean_text(subtitle_text)
     norm_phrase = clean_text(phrase)
 
-    # Точное совпадение для порога >= 0.95
+    # Точное совпадение для порога >= 0.95 (проверка вхождения фразы в субтитр)
     if threshold >= 0.95:
-        if norm_subtitle == norm_phrase:
+        if norm_phrase in norm_subtitle:
             return 1.0, norm_phrase, subtitle_text
         return 0.0, None, None
 

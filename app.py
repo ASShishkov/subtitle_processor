@@ -349,37 +349,32 @@ class SubtitleFilterApp(QMainWindow):
 
     def load_config(self):
         print("Загрузка конфига...")
+        self.stop_words = set([
+            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
+            "is", "are", "was", "were", "be", "have", "has", "had", "do", "does", "did",
+            "will", "would", "shall", "should", "can", "could", "may", "might",
+            "don't", "won't", "can't", "didn't", "doesn't", "i'm", "you're", "he's", "she's", "it's",
+            "и", "в", "на", "с", "к", "у", "по", "из", "а", "но", "что", "это", "как", "для"
+        ])
+        if os.path.exists("stop_words.txt"):
+            with open("stop_words.txt", "r", encoding="utf-8") as f:
+                additional_stop_words = {word.strip().lower() for word in f.read().splitlines() if word.strip()}
+                self.stop_words.update(additional_stop_words)
+                print("Дополнительные стоп-слова загружены из stop_words.txt")
         if os.path.exists("config.ini"):
             print("Файл config.ini найден")
             try:
                 self.config.read("config.ini", encoding='utf-8')
-                print("Конфиг прочитан")
                 if "Paths" in self.config:
-                    print("Секция Paths найдена")
                     self.path_vars[0].setText(self.config["Paths"].get("subtitles", ""))
                     self.path_vars[1].setText(self.config["Paths"].get("phrases_en", ""))
                     self.path_vars[2].setText(self.config["Paths"].get("phrases_ru", ""))
                     self.path_vars[3].setText(self.config["Paths"].get("output", ""))
                     self.path_vars[4].setText(self.config["Paths"].get("filename", "episodes"))
-                    print("Пути загружены из конфига")
                 if "StopWords" in self.config:
-                    self.stop_words = set(self.config["StopWords"].get("words", "").split(","))
-                    print("Стоп-слова загружены из конфига")
-                else:
-                    self.stop_words = set(
-                        ["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
-                         "и", "в", "на", "с", "к", "у", "по", "из", "а", "но", "что", "это", "как", "для"])
-                    print("Используются стоп-слова по умолчанию")
+                    self.stop_words.update(set(self.config["StopWords"].get("words", "").split(",")))
             except Exception as e:
                 print(f"Ошибка при чтении конфига: {e}")
-                self.stop_words = set(
-                    ["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
-                     "и", "в", "на", "с", "к", "у", "по", "из", "а", "но", "что", "это", "как", "для"])
-        else:
-            print("Файл config.ini не найден")
-            self.stop_words = set(
-                ["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
-                 "и", "в", "на", "с", "к", "у", "по", "из", "а", "но", "что", "это", "как", "для"])
 
     def save_config(self):
         if self.save_paths.isChecked():
@@ -474,8 +469,8 @@ class SubtitleFilterApp(QMainWindow):
             if not subs or not english_phrases or not russian_phrases:
                 raise ValueError("Файлы пусты или некорректны")
 
-            threshold = 0.5  # Фиксированный порог для частичных совпадений
-            analysis = analyze_phrases(subs, english_phrases, russian_phrases, threshold)
+            threshold = 0.5
+            analysis = analyze_phrases(subs, english_phrases, russian_phrases, threshold, stop_words=self.stop_words)
             self.phrase_order = analysis['phrase_order']
 
             self.selected_matches.clear()
@@ -503,9 +498,10 @@ class SubtitleFilterApp(QMainWindow):
                 for i, match in enumerate(best_matches[:3]):
                     key = (phrase, match['text'])
                     self.selected_matches[key] = (i == 0)
+                    # Проверяем, есть ли subtitle, если нет — используем 0 для сортировки
+                    sort_key = match['subtitle'].start.ordinal if match['subtitle'] is not None else 0
                     not_found_items.append(
-                        (phrase, match['text'], "Да" if i == 0 else "Нет", match['subtitle'].start.ordinal, rus_phrase,
-                         key))
+                        (phrase, match['text'], "Да" if i == 0 else "Нет", sort_key, rus_phrase, key))
                     group[key] = None
                 if group:
                     self.phrase_groups[phrase] = group
