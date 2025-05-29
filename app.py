@@ -3,9 +3,10 @@ import configparser
 import threading
 import os
 import logging
+import subprocess  # Добавлено
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QLabel, QLineEdit, QPushButton,
                              QFrame, QProgressBar, QCheckBox, QComboBox, QSlider, QTableView, QMenu,
-                             QApplication, QMessageBox, QFileDialog, QStyledItemDelegate, QAbstractItemView)
+                             QApplication, QMessageBox, QFileDialog, QStyledItemDelegate, QAbstractItemView, QInputDialog)  # Добавлен QInputDialog
 from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QStandardItemModel, QStandardItem, QFont, QColor
 from subtitle_processor import analyze_phrases, generate_excerpts, generate_timestamps
@@ -216,6 +217,11 @@ class SubtitleFilterApp(QMainWindow):
         for button in buttons:
             actions_layout.addWidget(button)
 
+        # Добавляем кнопку "Найти вручную"
+        manual_button = QPushButton("Найти вручную")
+        manual_button.clicked.connect(self.manual_find_phrase)
+        actions_layout.addWidget(manual_button)
+
         # Добавляем слайдер высоты ячейки
         row_height_layout = QHBoxLayout()
         row_height_layout.addWidget(QLabel("Высота ячейки (px):"))
@@ -276,23 +282,26 @@ class SubtitleFilterApp(QMainWindow):
             scrollbar_width = self.table_view.verticalScrollBar().width() if self.table_view.verticalScrollBar().isVisible() else 0
             available_width = viewport_width - scrollbar_width
 
-            # Устанавливаем ширину первых двух колонок пропорционально
-            col1_width = int(available_width * 0.45)  # Фраза
-            col2_width = int(available_width * 0.45)  # Субтитр
+            # Устанавливаем ширину колонок пропорционально
+            col1_width = int(available_width * 0.35)  # Фраза
+            col2_width = int(available_width * 0.35)  # Субтитр
+            col4_width = int(available_width * 0.20)  # Русская фраза
 
-            # Общая ширина двух колонок
-            used_width = col1_width + col2_width
+            # Общая ширина трёх колонок
+            used_width = col1_width + col2_width + col4_width
             remaining_width = available_width - used_width
 
             # Корректируем ширину, если места не хватает
             if remaining_width < 0:
-                col1_width = int(available_width * 0.47)
-                col2_width = int(available_width * 0.47)
-                remaining_width = available_width - col1_width - col2_width
+                col1_width = int(available_width * 0.37)
+                col2_width = int(available_width * 0.37)
+                col4_width = int(available_width * 0.22)
+                remaining_width = available_width - col1_width - col2_width - col4_width
 
             self.table_view.setColumnWidth(0, col1_width)  # Фраза
             self.table_view.setColumnWidth(1, col2_width)  # Субтитр
             self.table_view.setColumnWidth(2, max(remaining_width, 10))  # Выбор (минимальная ширина 10 пикселей)
+            self.table_view.setColumnWidth(3, col4_width)  # Русская фраза
 
             # Принудительное обновление, чтобы избежать визуальных артефактов
             self.table_view.update()
@@ -480,32 +489,33 @@ class SubtitleFilterApp(QMainWindow):
             partial_matches_items = []
             not_found_items = []
 
+            # Полные совпадения
             for phrase, match in analysis['full_matches'].items():
                 key = (phrase, match['text'])
                 self.selected_matches[key] = True
                 full_matches_items.append(
                     (phrase, match['text'], "Да", match['subtitle'].start.ordinal, match['rus_phrase']))
 
+            # Частичные совпадения
             for phrase, rus_phrase, matches in analysis['partial_matches']:
-                best_match = max(matches, key=lambda x: x['similarity'])
-                key = (phrase, best_match['text'])
-                self.selected_matches[key] = True
-                partial_matches_items.append(
-                    (phrase, best_match['text'], "Да", best_match['subtitle'].start.ordinal, rus_phrase))
-
-            for phrase, rus_phrase, best_matches in analysis['not_found']:
-                group = {}
-                for i, match in enumerate(best_matches[:3]):
+                for match in matches:
                     key = (phrase, match['text'])
-                    self.selected_matches[key] = (i == 0)
-                    # Проверяем, есть ли subtitle, если нет — используем 0 для сортировки
-                    sort_key = match['subtitle'].start.ordinal if match['subtitle'] is not None else 0
-                    not_found_items.append(
-                        (phrase, match['text'], "Да" if i == 0 else "Нет", sort_key, rus_phrase, key))
-                    group[key] = None
-                if group:
-                    self.phrase_groups[phrase] = group
+                    self.selected_matches[key] = False
+                    sort_key = match['subtitle'].start.ordinal if match['subtitle'] else 0
+                    partial_matches_items.append(
+                        (phrase, match['text'], "Нет", sort_key, rus_phrase))
 
+            # Ненайденные фразы
+            for phrase, rus_phrase, best_matches in analysis['not_found']:
+                key = (phrase, "нет ни одного совпадающего слова")
+                self.selected_matches[key] = False
+                not_found_items.append(
+                    (phrase, "нет ни одного совпадающего слова", "Нет", 0, rus_phrase, key))
+                if phrase not in self.phrase_groups:
+                    self.phrase_groups[phrase] = {}
+                self.phrase_groups[phrase][key] = None
+
+            # Сортировка
             if self.sort_option.currentText() == "time":
                 full_matches_items.sort(key=lambda x: x[3])
                 partial_matches_items.sort(key=lambda x: x[3])
@@ -515,6 +525,7 @@ class SubtitleFilterApp(QMainWindow):
                 partial_matches_items.sort(key=lambda x: self.phrase_order.index(x[0]))
                 not_found_items.sort(key=lambda x: self.phrase_order.index(x[0]))
 
+            # Формирование данных для таблицы
             data = [
                 ["Полностью совпадающие фразы", f"Кол-во: {len(full_matches_items)}", ""],
                 *[(phrase, text, selected, _, rus) for phrase, text, selected, _, rus in full_matches_items],
@@ -541,7 +552,7 @@ class SubtitleFilterApp(QMainWindow):
                     f"Проблем нет. Фраз: {total_phrases}, потенциальных отрывков: {self.potential_count}")
                 self.status_label.setStyleSheet("color: green")
             else:
-                issues = sum([len(analysis['not_found']), sum(len(m) for _, _, m in analysis['partial_matches']),
+                issues = sum([len(analysis['not_found']), len(partial_matches_items),
                               len(analysis['duplicates'])])
                 total_phrases = analysis['total_unique_phrases'] + len(analysis['duplicates'])
                 self.status_label.setText(
@@ -550,23 +561,95 @@ class SubtitleFilterApp(QMainWindow):
 
             if self.enable_logging.isChecked():
                 self.logger.info("Проверка завершена")
+
         except Exception as e:
             self.status_label.setText(f"Ошибка: {e}")
             self.status_label.setStyleSheet("color: red")
             if self.enable_logging.isChecked():
                 self.logger.error(f"Ошибка при проверке: {e}")
 
+    def manual_find_phrase(self):
+        """Функция для ручного поиска и добавления отрывка."""
+        # Открываем файл субтитров в блокноте
+        srt_path = self.path_vars[0].text()
+        if not os.path.exists(srt_path):
+            QMessageBox.warning(self, "Ошибка", "Файл субтитров не найден!")
+            return
+
+        subprocess.Popen(['notepad.exe', srt_path])
+
+        # Запрашиваем у пользователя текст отрывка
+        phrase, ok = QInputDialog.getText(self, "Ручной поиск", "Введите текст отрывка, найденного вручную:")
+        if ok and phrase:
+            # Поиск точного совпадения в субтитрах
+            subs = parse_srt(srt_path)
+            for sub in subs:
+                if phrase.lower() in sub.text.lower():
+                    # Добавляем в таблицу как полное совпадение
+                    key = (phrase, sub.text)
+                    self.selected_matches[key] = True
+                    self.phrase_groups[phrase] = {key: self.table_model.rowCount()}
+                    self._update_table_row(phrase, sub.text, "Да", sub.start.ordinal, "")
+                    QMessageBox.information(self, "Успех", f"Отрывок '{phrase}' добавлен с временем {sub.start}!")
+                    return
+
+            # Если совпадение не найдено, добавляем как частичное
+            key = (phrase, "Ручное добавление")
+            self.selected_matches[key] = False
+            self.phrase_groups[phrase] = {key: self.table_model.rowCount()}
+            self._update_table_row(phrase, "Ручное добавление", "Нет", 0, "")
+            QMessageBox.warning(self, "Предупреждение",
+                                f"Точное совпадение для '{phrase}' не найдено. Добавлено как ручное.")
+
+    def _update_table_row(self, phrase, text, selected, sort_key, rus_phrase):
+        """Обновление таблицы с новой строкой."""
+        row_position = self.table_model.rowCount()
+        self.table_model.insertRow(row_position)
+
+        # Создаём элементы для строки
+        phrase_item = QStandardItem(phrase)
+        text_item = QStandardItem(text)
+        selected_item = QStandardItem("")
+        rus_item = QStandardItem(rus_phrase if rus_phrase else "")
+
+        # Настраиваем чекбокс
+        selected_item.setData(Qt.CheckState.Checked if selected == "Да" else Qt.CheckState.Unchecked, Qt.CheckStateRole)
+        selected_item.setEditable(False)
+
+        # Добавляем пользовательские данные для сортировки
+        selected_item.setData(sort_key, Qt.UserRole)
+
+        # Добавляем строку в таблицу
+        self.table_model.setItem(row_position, 0, phrase_item)
+        self.table_model.setItem(row_position, 1, text_item)
+        self.table_model.setItem(row_position, 2, selected_item)
+        self.table_model.setItem(row_position, 3, rus_item)
+
+        # Обновляем размеры
+        self.table_view.resizeRowsToContents()
+        self.update_column_widths()
+
     def _update_table(self, data):
         self.table_model.removeRows(0, self.table_model.rowCount())
+        # Обновляем заголовки, добавляя колонку для русских фраз
+        self.table_model.setHorizontalHeaderLabels(["Фраза", "Субтитр", "Выбрано?", "Русская фраза"])
+
         for row in data:
-            items = [QStandardItem(str(cell)) if i < 2 else QStandardItem("") for i, cell in enumerate(row)]
+            # Создаём элементы строки
+            items = [QStandardItem(str(cell)) if i < 2 else QStandardItem("") for i, cell in enumerate(row[:3])]
+            # Добавляем русскую фразу, если она есть
+            if len(row) > 3:
+                items.append(QStandardItem(row[3] if row[3] else ""))
+            else:
+                items.append(QStandardItem(""))
+
             if row[0] not in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
                               "Дубли в фразах (информационно)"] and (row[0] or row[1]):
                 item = items[2]
                 item.setData(Qt.CheckState.Checked if row[2] == "Да" else Qt.CheckState.Unchecked, Qt.CheckStateRole)
                 item.setData("", Qt.DisplayRole)
                 item.setEditable(False)
-                if len(row) > 3:
+                if len(row) > 3 and isinstance(row[3], (int, float)):
                     items[2].setData(row[3], Qt.UserRole)
                 if self.show_matches.isChecked():
                     # Выделяем совпадающие слова
@@ -582,7 +665,7 @@ class SubtitleFilterApp(QMainWindow):
         for row in range(self.table_model.rowCount()):
             if self.table_model.index(row, 0).data() in ["Полностью совпадающие фразы", "Частично совпадающие фразы",
                                                          "Ненайденные фразы", "Дубли в фразах (информационно)"]:
-                for col in range(3):
+                for col in range(4):  # Обновлено до 4 колонок
                     item = self.table_model.item(row, col)
                     if item:
                         font = QFont()
@@ -594,23 +677,6 @@ class SubtitleFilterApp(QMainWindow):
         self.table_view.doubleClicked.connect(self.on_double_click)
         self.table_view.update()
         self.update_column_widths()
-
-    def _get_matched_words(self, phrase, subtitle):
-        from utils import normalize_text
-        phrase_words = set(normalize_text(phrase).split()) - self.stop_words
-        subtitle_words = set(normalize_text(subtitle).split()) - self.stop_words
-        return phrase_words & subtitle_words
-
-    def _highlight_words(self, text, matched_words):
-        words = text.split()
-        result = []
-        for word in words:
-            norm_word = normalize_text(word)
-            if norm_word in matched_words:
-                result.append(f"<b>{word}</b>")
-            else:
-                result.append(word)
-        return " ".join(result)
 
     def on_double_click(self, index):
         if index.column() == 2:  # Колонка "Выбор"
