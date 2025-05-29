@@ -1,49 +1,64 @@
 import pysrt
 import pymorphy3
-import difflib
-from datetime import datetime, timedelta
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 import re
+from datetime import datetime, timedelta
+from difflib import SequenceMatcher
 
 morph = pymorphy3.MorphAnalyzer()
 
 def find_matches(subtitle_text, phrase, threshold=0.5, stop_words=None, whitelist=None):
+    """
+    Поиск совпадений между фразой и субтитром с учетом порядка слов и контекста.
+    Использует SequenceMatcher для точного сравнения.
+    """
     if stop_words is None:
         stop_words = set()
     if whitelist is None:
-        whitelist = set(["not", "yes", "out"])  # Белый список важных слов
+        whitelist = set(["not", "yes", "out", "i", "im", "is", "are", "a", "an", "the"])
 
-    # Очистка текста от знаков препинания и приведения к нижнему регистру
+    # Минимальная очистка текста с сохранением структуры
     def clean_text(text):
-        text = re.sub(r'[^\w\s\']', '', text.lower())  # Оставляем апострофы
+        if not text or not isinstance(text, str):
+            return ""
+        # Удаляем только лишние знаки, сохраняя структуру
+        text = re.sub(r'[^\w\s\'-]', ' ', text.lower()).strip()
+        # Убираем множественные пробелы
+        text = re.sub(r'\s+', ' ', text)
         return text
 
-    # Фильтрация слов (< 3 букв, стоп-слова, с учётом белого списка)
+    # Фильтрация слов с учетом белого списка
     def filter_words(text):
-        words = clean_text(text).split()
-        return ' '.join([w for w in words if (len(w) >= 3 or w in whitelist) and w not in stop_words])
+        cleaned_text = clean_text(text)
+        if not cleaned_text:
+            return ""
+        words = cleaned_text.split()
+        return ' '.join([w for w in words if (len(w) >= 2 or w in whitelist) and w not in stop_words])
 
-    # Нормализация текста
-    norm_subtitle = filter_words(subtitle_text)
-    norm_phrase = filter_words(phrase)
+    # Нормализация для сравнения
+    norm_subtitle = clean_text(subtitle_text)
+    norm_phrase = clean_text(phrase)
 
-    # Проверка на точное совпадение (threshold >= 0.95)
-    if threshold >= 0.95:
-        if clean_text(phrase) in clean_text(subtitle_text):
+    # Проверка на точное вхождение с учетом порядка слов
+    if norm_phrase in norm_subtitle:
+        # Используем SequenceMatcher для подтверждения порядка
+        matcher = SequenceMatcher(None, norm_subtitle.split(), norm_phrase.split())
+        match = matcher.find_longest_match(0, len(norm_subtitle.split()), 0, len(norm_phrase.split()))
+        if match.size == len(norm_phrase.split()):
             return 1.0, norm_phrase, subtitle_text
-        return 0.0, None, None
 
-    # TF-IDF векторизация
-    if not norm_subtitle or not norm_phrase:  # Если после фильтрации текст пустой
-        return 0.0, None, None
+    # Частичное совпадение с помощью SequenceMatcher
+    matcher = SequenceMatcher(None, norm_subtitle.split(), norm_phrase.split())
+    match = matcher.find_longest_match(0, len(norm_subtitle.split()), 0, len(norm_phrase.split()))
+    if match.size > 0:
+        similarity = match.size / len(norm_phrase.split())  # Нормализованная схожесть
+        if similarity >= threshold:
+            # Восстанавливаем оригинальный текст для matched_text
+            start_idx = match.a
+            end_idx = match.a + match.size
+            matched_words = norm_subtitle.split()[start_idx:end_idx]
+            matched_text = ' '.join(matched_words)
+            return similarity, matched_text, subtitle_text
 
-    vectorizer = TfidfVectorizer()
-    tfidf_matrix = vectorizer.fit_transform([norm_subtitle, norm_phrase])
-    similarity = cosine_similarity(tfidf_matrix[0:1], tfidf_matrix[1:2])[0][0]
-
-    if similarity >= threshold:
-        return similarity, norm_phrase, subtitle_text
     return 0.0, None, None
 
 def parse_srt(file_path):

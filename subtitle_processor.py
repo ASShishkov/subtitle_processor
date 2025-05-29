@@ -62,7 +62,7 @@ def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold, stop
         if not matches:
             # Проверяем пересечение слов длиннее 2 букв (исключая стоп-слова)
             def get_valid_words(text):
-                words = re.sub(r'[^\w\s\']', '', text.lower()).split()
+                words = re.sub(r'[^\w\s\'-]', ' ', text.lower()).split()  # Заменяем знаки на пробелы
                 return set(w for w in words if len(w) > 2 and w not in stop_words)
 
             phrase_words = get_valid_words(eng_phrase)
