@@ -67,6 +67,7 @@ class SubtitleFilterApp(QMainWindow):
         self.phrase_groups = {}
         self.phrase_order = []
         self.potential_count = 0
+        self.modified_subs = None  # Добавлено для хранения обновлённых субтитров
         print("5. Переменные инициализированы")
 
         print("6. Запуск setup_gui...")
@@ -730,18 +731,18 @@ class SubtitleFilterApp(QMainWindow):
 
     def _find_excerpts_thread(self):
         try:
-            subs = parse_srt(self.path_vars[0].text())
+            # Используем modified_subs, если доступен, иначе загружаем исходный файл
+            subs = self.modified_subs if self.modified_subs is not None else parse_srt(self.path_vars[0].text())
             with open(self.path_vars[1].text(), 'r', encoding='utf-8') as f_en:
                 english_phrases = [line.strip() for line in f_en if line.strip()]
             with open(self.path_vars[2].text(), 'r', encoding='utf-8') as f_ru:
                 russian_phrases = [line.strip() for line in f_ru if line.strip()]
-            threshold = 0.5  # Убрали зависимость от слайдера
+            threshold = 0.5
             self.progress.setMaximum(len(english_phrases))
 
             selected = {}
             phrase_pairs = dict(zip(english_phrases, russian_phrases))
 
-            # Список для хранения пар (время, английская фраза, русская фраза, субтитр)
             selected_phrases_with_time = []
 
             for row in range(self.table_model.rowCount()):
@@ -758,17 +759,14 @@ class SubtitleFilterApp(QMainWindow):
                             selected[phrase] = []
                         selected[phrase].append({'subtitle': sub, 'text': subtitle_text})
                         selected_phrases_with_time.append((
-                            sub.start.ordinal,  # Время для сортировки
-                            phrase,  # Английская фраза
-                            phrase_pairs.get(phrase, ""),  # Русская фраза
-                            sub  # Субтитр
+                            sub.start.ordinal,
+                            phrase,
+                            phrase_pairs.get(phrase, ""),
+                            sub
                         ))
                         break
 
-            # Сортируем по времени
             selected_phrases_with_time.sort(key=lambda x: x[0])
-
-            # Формируем отсортированные списки
             selected_eng_phrases = [item[1] for item in selected_phrases_with_time]
             selected_rus_phrases = [item[2] for item in selected_phrases_with_time]
 
@@ -780,7 +778,6 @@ class SubtitleFilterApp(QMainWindow):
             output_path = os.path.join(output_dir, f"Timestamps_{filename}.srt")
             generate_excerpts(subs, english_phrases, threshold, output_path, selected)
 
-            # Создание файлов TXT
             rus_words_file = os.path.join(output_dir, f"russian_words_{filename}.txt")
             with open(rus_words_file, 'w', encoding='utf-8') as f_rus:
                 for rus_phrase in selected_rus_phrases:
@@ -794,6 +791,7 @@ class SubtitleFilterApp(QMainWindow):
             for i in range(len(english_phrases)):
                 self.progress.setValue(i + 1)
                 QApplication.processEvents()
+
             self.status_label.setText("Отрывки найдены")
             self.status_label.setStyleSheet("color: green")
             if self.enable_logging.isChecked():
@@ -806,6 +804,7 @@ class SubtitleFilterApp(QMainWindow):
         finally:
             self.is_running = False
             self.save_config()
+            QApplication.processEvents()
 
     def get_timestamps(self):
         if not self.path_vars[0].text() or not self.path_vars[1].text():
@@ -818,7 +817,7 @@ class SubtitleFilterApp(QMainWindow):
 
     def _get_timestamps_thread(self):
         try:
-            subs = parse_srt(self.path_vars[0].text())
+            subs = self.modified_subs if self.modified_subs is not None else parse_srt(self.path_vars[0].text())
             with open(self.path_vars[1].text(), 'r', encoding='utf-8') as f:
                 phrases = [line.strip() for line in f if line.strip()]
             threshold = self.match_threshold.value() / 100.0
@@ -864,6 +863,8 @@ class SubtitleFilterApp(QMainWindow):
             QMessageBox.warning(self, "Ошибка", "Выберите хотя бы одну строку!")
             return
 
+        # Загружаем субтитры для модификации
+        subs = parse_srt(self.path_vars[0].text())
         # Запрашиваем количество секунд для начала и конца
         start_secs, ok1 = QInputDialog.getDouble(self, "Изменить таймкоды",
                                                  "Секунды в начало (положительное или отрицательное):", 0, -60, 60, 2)
@@ -875,40 +876,37 @@ class SubtitleFilterApp(QMainWindow):
             return
 
         # Обрабатываем каждую выбранную строку
+        modified_subs = subs[:]  # Копируем список для модификации
+        modified_dict = {}  # Словарь для быстрого доступа к обновлённым субтитрам
         for row in selected_rows:
             phrase = self.table_model.index(row, 0).data()
             subtitle_text = self.table_model.index(row, 1).data()
             key = (phrase, subtitle_text)
 
-            # Проверяем, что строка не является заголовком
             if phrase in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
                           "Дубли в фразах (информационно)"]:
                 continue
 
-            # Находим субтитр в исходном файле
-            subs = parse_srt(self.path_vars[0].text())
-            for sub in subs:
+            for sub in modified_subs:
                 if sub.text == subtitle_text:
-                    # Изменяем таймкоды
                     start_time = sub.start
                     end_time = sub.end
 
-                    # Конвертируем время в миллисекунды
                     start_ms = start_time.ordinal + int(start_secs * 1000)
                     end_ms = end_time.ordinal + int(end_secs * 1000)
 
-                    # Проверяем, чтобы время не стало отрицательным
                     start_ms = max(0, start_ms)
-                    end_ms = max(start_ms + 1, end_ms)  # Конец должен быть позже начала
+                    end_ms = max(start_ms + 1, end_ms)
 
-                    # Обновляем субтитр
                     sub.start = pysrt.SubRipTime.from_ordinal(start_ms)
                     sub.end = pysrt.SubRipTime.from_ordinal(end_ms)
-
-                    # Обновляем данные в таблице
+                    modified_dict[sub.index] = sub
                     self.table_model.setItem(row, 1, QStandardItem(sub.text))
                     self.table_model.item(row, 2).setData(sub.start.ordinal, Qt.UserRole)
                     break
+
+        # Сохраняем обновлённый список
+        self.modified_subs = modified_subs
 
         QMessageBox.information(self, "Успех", f"Таймкоды изменены для {len(selected_rows)} строк!")
         if self.enable_logging.isChecked():
@@ -949,6 +947,7 @@ if __name__ == "__main__":
         print("7. Запуск event loop...")
         result = app.exec_()
         print(f"8. Event loop завершен с кодом: {result}")
+        print("Проверка: приложение должно остаться открытым, если нет ошибок.")
 
         sys.exit(result)
 
