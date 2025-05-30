@@ -1,5 +1,4 @@
 import sys
-import configparser
 import threading
 import os
 import logging
@@ -13,6 +12,7 @@ from subtitle_processor import analyze_phrases, generate_excerpts, generate_time
 from utils import parse_srt
 import pysrt
 from PyQt5.QtWidgets import QSizePolicy
+from database import Database
 
 class ComboBoxDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
@@ -42,7 +42,6 @@ class ComboBoxDelegate(QStyledItemDelegate):
 
 class SubtitleFilterApp(QMainWindow):
 
-
     def __init__(self, parent=None):
         print("=== ИНИЦИАЛИЗАЦИЯ НАЧАЛАСЬ ===")
         super().__init__(parent)
@@ -52,23 +51,24 @@ class SubtitleFilterApp(QMainWindow):
         # Устанавливаем минимальный размер окна
         self.setMinimumSize(600, 400)
 
-        # Устанавливаем начальный размер (меньше чем было)
-        self.resize(1250, 801)
+        # Устанавливаем начальный размер
+        self.resize(1250, 800)
 
         # Позиционируем окно в центре экрана
         self.center_window()
 
         print("3. Размер и позиция окна установлены")
 
-        self.config = configparser.ConfigParser()
-        print("4. ConfigParser создан")
+        # Инициализация базы данных
+        self.db = Database()
+        print("4. Database инициализирован")
 
         self.is_running = False
         self.selected_matches = {}
         self.phrase_groups = {}
         self.phrase_order = []
         self.potential_count = 0
-        self.modified_subs = None  # Добавлено для хранения обновлённых субтитров
+        self.modified_subs = None
         print("5. Переменные инициализированы")
 
         print("6. Запуск setup_gui...")
@@ -83,6 +83,11 @@ class SubtitleFilterApp(QMainWindow):
         self.load_config()
         print("11. load_config завершен")
         print("=== ИНИЦИАЛИЗАЦИЯ ЗАВЕРШЕНА ===")
+
+    def closeEvent(self, event):
+        self.save_config()
+        self.db.close()
+        event.accept()
 
     def on_single_click(self, index):
         print(f"Single click on index: row={index.row()}, col={index.column()}")
@@ -178,9 +183,6 @@ class SubtitleFilterApp(QMainWindow):
         options_frame.setFrameShape(QFrame.StyledPanel)
         options_frame.setStyleSheet("QFrame { border: 1px solid #ccc; padding: 5px; }")
 
-        self.save_paths = QCheckBox("Сохранять пути")
-        self.save_paths.setChecked(True)
-        self.save_paths.setFixedWidth(200)  # Одинаковая ширина
         self.enable_logging = QCheckBox("Включить логирование")
         self.enable_logging.setChecked(True)
         self.enable_logging.setFixedWidth(200)
@@ -191,7 +193,7 @@ class SubtitleFilterApp(QMainWindow):
         sort_label.setFixedWidth(200)
         self.sort_option = QComboBox()
         self.sort_option.addItems(["time", "file"])
-        self.sort_option.setFixedWidth(200)  # Одинаковая ширина
+        self.sort_option.setFixedWidth(200)
         self.sort_option.currentTextChanged.connect(self.update_sorting)
 
         self.match_threshold = QSlider(Qt.Horizontal)
@@ -199,13 +201,11 @@ class SubtitleFilterApp(QMainWindow):
         self.match_threshold.setValue(80)
         self.match_threshold.setFixedWidth(200)
 
-        options_layout.addWidget(self.save_paths)
         options_layout.addWidget(self.enable_logging)
         options_layout.addWidget(self.show_matches)
         options_layout.addWidget(sort_label)
         options_layout.addWidget(self.sort_option)
         options_layout.setAlignment(Qt.AlignLeft)
-
         # Кнопки
         actions_frame = QFrame()
         actions_layout = QVBoxLayout(actions_frame)
@@ -376,20 +376,26 @@ class SubtitleFilterApp(QMainWindow):
             path, _ = QFileDialog.getOpenFileName(self, "Выберите SRT-файл", filter="SRT files (*.srt)")
             if path:
                 self.path_vars[idx].setText(path)
+                print(f"Обновлён path_vars[{idx}]: {self.path_vars[idx].text()}")
+                self.save_config()
         elif idx in [1, 2]:  # Оба файла фраз
             path, _ = QFileDialog.getOpenFileName(self, "Выберите TXT-файл", filter="Text files (*.txt)")
             if path:
                 self.path_vars[idx].setText(path)
+                print(f"Обновлён path_vars[{idx}]: {self.path_vars[idx].text()}")
+                self.save_config()
         elif idx == 3:
             path = QFileDialog.getExistingDirectory(self, "Выберите папку вывода")
             if path:
                 self.path_vars[idx].setText(path)
+                print(f"Обновлён path_vars[{idx}]: {self.path_vars[idx].text()}")
+                self.save_config()
 
     def output_path(self):
         return self.path_vars[2].text()
 
     def load_config(self):
-        print("Загрузка конфига...")
+        print("Загрузка конфига из базы данных...")
         self.stop_words = set([
             "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
             "is", "are", "was", "were", "be", "have", "has", "had", "do", "does", "did",
@@ -402,32 +408,30 @@ class SubtitleFilterApp(QMainWindow):
                 additional_stop_words = {word.strip().lower() for word in f.read().splitlines() if word.strip()}
                 self.stop_words.update(additional_stop_words)
                 print("Дополнительные стоп-слова загружены из stop_words.txt")
-        if os.path.exists("config.ini"):
-            print("Файл config.ini найден")
-            try:
-                self.config.read("config.ini", encoding='utf-8')
-                if "Paths" in self.config:
-                    self.path_vars[0].setText(self.config["Paths"].get("subtitles", ""))
-                    self.path_vars[1].setText(self.config["Paths"].get("phrases_en", ""))
-                    self.path_vars[2].setText(self.config["Paths"].get("phrases_ru", ""))
-                    self.path_vars[3].setText(self.config["Paths"].get("output", ""))
-                    self.path_vars[4].setText(self.config["Paths"].get("filename", "episodes"))
-                if "StopWords" in self.config:
-                    self.stop_words.update(set(self.config["StopWords"].get("words", "").split(",")))
-            except Exception as e:
-                print(f"Ошибка при чтении конфига: {e}")
+
+        # Загрузка путей из базы данных
+        paths = self.db.load_paths()
+        print(f"Установка путей в интерфейс: {paths}")
+        for i, path in enumerate(paths):
+            self.path_vars[i].setText(path)
+        print("Пути загружены из базы данных")
+
+        # Загрузка данных таблицы
+        table_data = self.db.load_table_data()
+        if table_data:
+            self._update_table(table_data)
+            print("Данные таблицы загружены из базы данных")
 
     def save_config(self):
-        if self.save_paths.isChecked():
-            self.config["Paths"] = {
-                "subtitles": self.path_vars[0].text(),
-                "phrases_en": self.path_vars[1].text(),  # Английский файл
-                "phrases_ru": self.path_vars[2].text(),  # Русский файл
-                "output": self.path_vars[3].text(),
-                "filename": self.path_vars[4].text()
-            }
-            with open("config.ini", "w", encoding="utf-8") as configfile:
-                self.config.write(configfile)
+        paths = [
+            self.path_vars[0].text(),
+            self.path_vars[1].text(),
+            self.path_vars[2].text(),
+            self.path_vars[3].text(),
+            self.path_vars[4].text()
+        ]
+        print(f"Сохранение путей в базу данных: {paths}")
+        self.db.save_paths(*paths)
 
     def show_context_menu(self, pos):
         index = self.table_view.indexAt(pos)
@@ -959,7 +963,7 @@ if __name__ == "__main__":
         print("2. QApplication создан успешно")
 
         print("3. Создание экземпляра SubtitleFilterApp...")
-        app_instance = SubtitleFilterApp()  # Без параметра window
+        app_instance = SubtitleFilterApp()
         print("4. SubtitleFilterApp создан успешно")
 
         print("5. Показ окна...")
@@ -976,7 +980,4 @@ if __name__ == "__main__":
     except Exception as e:
         print(f"ОШИБКА В MAIN: {e}")
         import traceback
-
         traceback.print_exc()
-else:
-    print("=== MAIN БЛОК НЕ ЗАПУЩЕН (файл импортирован) ===")
