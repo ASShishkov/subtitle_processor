@@ -53,7 +53,7 @@ class SubtitleFilterApp(QMainWindow):
         self.setMinimumSize(600, 400)
 
         # Устанавливаем начальный размер (меньше чем было)
-        self.resize(950, 800)
+        self.resize(1250, 800)
 
         # Позиционируем окно в центре экрана
         self.center_window()
