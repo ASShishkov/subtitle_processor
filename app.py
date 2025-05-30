@@ -12,6 +12,7 @@ from PyQt5.QtGui import QStandardItemModel, QStandardItem, QFont, QColor
 from subtitle_processor import analyze_phrases, generate_excerpts, generate_timestamps
 from utils import parse_srt
 import pysrt
+from PyQt5.QtWidgets import QSizePolicy
 
 class ComboBoxDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
@@ -52,7 +53,7 @@ class SubtitleFilterApp(QMainWindow):
         self.setMinimumSize(600, 400)
 
         # Устанавливаем начальный размер (меньше чем было)
-        self.resize(800, 600)
+        self.resize(950, 800)
 
         # Позиционируем окно в центре экрана
         self.center_window()
@@ -122,123 +123,148 @@ class SubtitleFilterApp(QMainWindow):
             self.move(100, 100)
 
     def setup_gui(self):
-        # Центральный виджет и основной макет
+        from PyQt5.QtWidgets import QSizePolicy
+
         central_widget = QWidget()
         self.setCentralWidget(central_widget)
         main_layout = QVBoxLayout(central_widget)
+        main_layout.setSpacing(5)  # Минимальные отступы
 
-        # Фрейм для файлов (вертикальное расположение)
+        # --- Верхний layout для файлов и кнопок ---
+        top_layout = QHBoxLayout()
+        main_layout.addLayout(top_layout)
+
+        # --- БЛОК ФАЙЛОВ ---
         files_frame = QFrame()
         files_layout = QVBoxLayout(files_frame)
-        main_layout.addWidget(files_frame)
+        files_layout.setAlignment(Qt.AlignLeft)
 
-        labels = ["Путь к субтитрам (SRT):", "Путь к файлу английских фраз (TXT):", "Путь к файлу русских фраз (TXT):",
-                  "Папка вывода:", "Имя выходного файла:"]
-        self.path_vars = [QLineEdit() for _ in range(5)]  # Увеличили до 5 полей
+        labels = [
+            "Путь к субтитрам (SRT):",
+            "Путь к файлу английских фраз (TXT):",
+            "Путь к файлу русских фраз (TXT):",
+            "Папка вывода:",
+            "Имя выходного файла:"
+        ]
+        self.path_vars = [QLineEdit() for _ in range(5)]
         self.path_vars[4].setText("episodes")
 
         for i, label_text in enumerate(labels):
             row_layout = QHBoxLayout()
             label = QLabel(label_text)
+            label.setMinimumWidth(200)
+            label.setAlignment(Qt.AlignLeft)
             entry = self.path_vars[i]
-            entry.setMinimumWidth(500)
+            entry.setFixedWidth(450)  # Фиксированная ширина для всех полей
+            entry.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             browse_button = QPushButton("Обзор")
+            browse_button.setFixedSize(100, 30)  # Фиксированный размер кнопок
             browse_button.clicked.connect(lambda checked, idx=i: self.browse_file(idx))
             row_layout.addWidget(label)
             row_layout.addWidget(entry)
             row_layout.addWidget(browse_button)
+            row_layout.setAlignment(Qt.AlignLeft)
             files_layout.addLayout(row_layout)
 
-        # Новый фрейм для настроек и действий (в одну линию)
-        options_actions_frame = QFrame()
-        options_actions_layout = QHBoxLayout(options_actions_frame)  # Горизонтальный макет для двух блоков
-        main_layout.addWidget(options_actions_frame)
+        top_layout.addWidget(files_frame)
 
-        # Блок 1: Настройки (слева)
+        # --- НАСТРОЙКИ И КНОПКИ ---
+        self.options_actions_frame = QFrame()
+        options_actions_layout = QHBoxLayout(self.options_actions_frame)
+
+        # Чекбоксы
         options_frame = QFrame()
-        options_layout = QVBoxLayout(options_frame)  # Вертикальный макет внутри блока
-        options_frame.setFrameShape(QFrame.StyledPanel)  # Добавляем рамку для визуального разделения
+        options_layout = QVBoxLayout(options_frame)
+        options_frame.setFrameShape(QFrame.StyledPanel)
         options_frame.setStyleSheet("QFrame { border: 1px solid #ccc; padding: 5px; }")
-        options_actions_layout.addWidget(options_frame)
-
-        # Элементы настроек
-        self.match_threshold = QSlider(Qt.Horizontal)
-        self.match_threshold.setRange(50, 100)
-        self.match_threshold.setValue(80)
-        self.match_threshold.setMinimumWidth(150)
-
-        self.sort_option = QComboBox()
-        self.sort_option.addItems(["time", "file"])
-        self.sort_option.currentTextChanged.connect(self.update_sorting)
-        self.sort_option.setMinimumWidth(100)
 
         self.save_paths = QCheckBox("Сохранять пути")
         self.save_paths.setChecked(True)
+        self.save_paths.setFixedWidth(200)  # Одинаковая ширина
         self.enable_logging = QCheckBox("Включить логирование")
         self.enable_logging.setChecked(True)
+        self.enable_logging.setFixedWidth(200)
+        self.show_matches = QCheckBox("Показать соответствия")
+        self.show_matches.setFixedWidth(200)
 
-        self.show_matches = QCheckBox("Показать соответствия")  # Новый чекбокс
-        self.show_matches.setChecked(False)
+        sort_label = QLabel("Сортировка:")
+        sort_label.setFixedWidth(200)
+        self.sort_option = QComboBox()
+        self.sort_option.addItems(["time", "file"])
+        self.sort_option.setFixedWidth(200)  # Одинаковая ширина
+        self.sort_option.currentTextChanged.connect(self.update_sorting)
 
-        # Элементы настроек
+        self.match_threshold = QSlider(Qt.Horizontal)
+        self.match_threshold.setRange(50, 100)
+        self.match_threshold.setValue(80)
+        self.match_threshold.setFixedWidth(200)
+
+        options_layout.addWidget(self.save_paths)
+        options_layout.addWidget(self.enable_logging)
+        options_layout.addWidget(self.show_matches)
+        options_layout.addWidget(sort_label)
         options_layout.addWidget(self.sort_option)
-        options_layout.addWidget(self.save_paths)
-        options_layout.addWidget(self.enable_logging)
-        options_layout.addWidget(self.show_matches)  # Добавляем чекбокс
+        options_layout.setAlignment(Qt.AlignLeft)
 
-        sort_layout = QHBoxLayout()
-        sort_layout.addWidget(QLabel("Сортировка:"))
-        sort_layout.addWidget(self.sort_option)
-        options_layout.addLayout(sort_layout)
-
-        options_layout.addWidget(self.save_paths)
-        options_layout.addWidget(self.enable_logging)
-
-        # Блок 2: Действия (справа)
+        # Кнопки
         actions_frame = QFrame()
-        actions_layout = QVBoxLayout(actions_frame)  # Вертикальный макет внутри блока
+        actions_layout = QVBoxLayout(actions_frame)
         actions_frame.setFrameShape(QFrame.StyledPanel)
         actions_frame.setStyleSheet("QFrame { border: 1px solid #ccc; padding: 5px; }")
-        options_actions_layout.addWidget(actions_frame)
-
-        # Элементы действий
-        self.row_height = QSlider(Qt.Horizontal)
-        self.row_height.setRange(20, 60)
-        self.row_height.setValue(20)
-        self.row_height.valueChanged.connect(self.update_row_height)
-        self.row_height.setMinimumWidth(150)
 
         buttons = [
             QPushButton("Найти совпадения", clicked=self.check_phrases),
             QPushButton("Получить отрывки", clicked=self.find_excerpts),
             QPushButton("Таймкоды", clicked=self.get_timestamps),
-            QPushButton("Очистить", clicked=self.clear_fields)
+            QPushButton("Очистить", clicked=self.clear_fields),
+            QPushButton("Найти вручную", clicked=self.manual_find_phrase),
+            QPushButton("Изменить таймкоды", clicked=self.modify_timestamps)
         ]
 
-        # Добавляем кнопки друг под другом
         for button in buttons:
+            button.setFixedSize(160, 30)  # Уменьшенный фиксированный размер
             actions_layout.addWidget(button)
 
-        # Добавляем кнопку "Найти вручную"
-        manual_button = QPushButton("Найти вручную")
-        manual_button.clicked.connect(self.manual_find_phrase)
-        actions_layout.addWidget(manual_button)
-
-        # Добавляем кнопку "Изменить таймкоды"
-        modify_timestamps_button = QPushButton("Изменить таймкоды")
-        modify_timestamps_button.clicked.connect(self.modify_timestamps)
-        actions_layout.addWidget(modify_timestamps_button)
-
-        # Добавляем чекбокс
         self.adjust_row_height = QCheckBox("Высота по содержимому")
         self.adjust_row_height.setChecked(False)
+        self.adjust_row_height.setFixedWidth(160)
         self.adjust_row_height.stateChanged.connect(self.update_row_height)
         actions_layout.addWidget(self.adjust_row_height)
+        actions_layout.setAlignment(Qt.AlignLeft)
 
-        # Устанавливаем растяжение, чтобы блоки распределялись равномерно
-        options_actions_layout.addStretch()
+        options_actions_layout.addWidget(options_frame)
+        options_actions_layout.addWidget(actions_frame)
+        options_actions_layout.setAlignment(Qt.AlignLeft)
 
-        # Прогресс-бар и статус
+        # Изначально добавляем options_actions_frame в main_layout
+        self.is_maximized = False
+        main_layout.addWidget(self.options_actions_frame)
+
+        # --- Таблица ---
+        self.table_frame = QFrame()
+        table_layout = QVBoxLayout(self.table_frame)
+        self.table_model = QStandardItemModel()
+        self.table_model.setHorizontalHeaderLabels(["Фраза", "Субтитр", "Выбрано?", "Русская фраза"])
+
+        self.table_view = QTableView()
+        self.table_view.setModel(self.table_model)
+        self.table_view.setSelectionBehavior(QTableView.SelectRows)
+        self.table_view.setSelectionMode(QTableView.MultiSelection)
+        self.table_view.setContextMenuPolicy(Qt.CustomContextMenu)
+        self.table_view.customContextMenuRequested.connect(self.show_context_menu)
+        self.table_view.setEditTriggers(QAbstractItemView.AllEditTriggers)
+        self.table_view.clicked.connect(self.on_single_click)
+        table_layout.addWidget(self.table_view)
+
+        self.table_view.setStyleSheet("QTableView { margin: 0px; padding: 0px; border: 0px; }")
+        self.table_view.setContentsMargins(0, 0, 0, 0)
+        self.table_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.table_view.setHorizontalScrollMode(QTableView.ScrollPerPixel)
+
+        self.update_column_widths()
+
+        main_layout.addWidget(self.table_frame, stretch=2)
+
         self.progress = QProgressBar()
         self.progress.setMaximum(100)
         main_layout.addWidget(self.progress)
@@ -250,37 +276,33 @@ class SubtitleFilterApp(QMainWindow):
         self.potential_label = QLabel("Потенциальных отрывков: 0")
         main_layout.addWidget(self.potential_label)
 
-        # Таблица
-        self.table_frame = QFrame()
-        table_layout = QVBoxLayout(self.table_frame)
-        main_layout.addWidget(self.table_frame, stretch=1)
-
-        self.table_model = QStandardItemModel()
-        self.table_model.setHorizontalHeaderLabels(["Фраза", "Субтитр", "Выбрано?"])
-        self.table_view = QTableView()
-        self.table_view.setModel(self.table_model)
-        self.table_view.setSelectionBehavior(QTableView.SelectRows)
-        self.table_view.setSelectionMode(QTableView.MultiSelection)
-        self.table_view.setContextMenuPolicy(Qt.CustomContextMenu)
-        self.table_view.customContextMenuRequested.connect(self.show_context_menu)
-        self.table_view.setEditTriggers(QAbstractItemView.AllEditTriggers)  # Разрешаем редактирование по любому клику
-        self.table_view.clicked.connect(self.on_single_click)  # Подключаем обработчик одинарного клика
-        table_layout.addWidget(self.table_view)
-
-        self.update_column_widths()
-        self.table_view.setStyleSheet("QTableView { margin: 0px; padding: 0px; border: 0px; border-width: 0px; }")
-        self.table_view.setContentsMargins(0, 0, 0, 0)
-        self.table_view.horizontalHeader().setStyleSheet("QHeaderView { margin: 0px; padding: 0px; }")
-        self.table_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.table_view.setHorizontalScrollMode(QTableView.ScrollPerPixel)
-
-        # Устанавливаем начальные размеры колонок
-        self.update_column_widths()
-
-        # Таймер для обновления размеров при изменении окна
         self.resize_timer = QTimer()
         self.resize_timer.timeout.connect(self.update_column_widths)
         self.resize_timer.start(100)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        # Определяем, развернуто ли окно или его ширина больше 1000 px
+        new_maximized = self.isMaximized() or self.width() > 1000
+        if new_maximized != self.is_maximized:
+            self.is_maximized = new_maximized
+            # Удаляем options_actions_frame из текущего layout
+            main_layout = self.centralWidget().layout()
+            top_layout = main_layout.itemAt(0).layout()
+            if self.is_maximized:
+                # Перемещаем в top_layout
+                main_layout.removeWidget(self.options_actions_frame)
+                top_layout.addWidget(self.options_actions_frame)
+                top_layout.addStretch()  # Растяжка слева
+                top_layout.setAlignment(self.options_actions_frame, Qt.AlignRight | Qt.AlignTop)
+                # Увеличиваем stretch таблицы
+                main_layout.addWidget(self.table_frame, stretch=4)
+            else:
+                # Возвращаем в main_layout
+                top_layout.removeWidget(self.options_actions_frame)
+                top_layout.takeAt(top_layout.count() - 1)  # Удаляем stretch
+                main_layout.insertWidget(1, self.options_actions_frame)
+                main_layout.addWidget(self.table_frame, stretch=2)
 
     def update_column_widths(self):
         # Получаем ширину видимой области таблицы (viewport)
