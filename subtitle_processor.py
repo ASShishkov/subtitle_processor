@@ -2,6 +2,8 @@ from utils import parse_srt, normalize_text, find_matches, format_srt_entry, cal
 import re
 
 def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold, stop_words=None):
+    if stop_words is None:
+        stop_words = set()
     results = {}  # Для хранения множественных совпадений
     phrase_counts = {}  # Для подсчета дублей
     not_found_phrases = []  # Ненайденные фразы
@@ -10,11 +12,17 @@ def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold, stop
     unique_phrases = set()  # Уникальные фразы для порядка
     phrase_order = []  # Порядок фраз
     processed_phrases = set()  # Отслеживание обработанных фраз
+    rus_phrases = []  # Новый список для русских фраз
 
     # Исключаем дубли фраз до поиска
     unique_phrase_pairs = list(dict.fromkeys(zip(english_phrases, russian_phrases)))
     english_phrases, russian_phrases = zip(*unique_phrase_pairs) if unique_phrase_pairs else ([], [])
     phrase_pairs = list(zip(english_phrases, russian_phrases))
+
+    # Заполняем rus_phrases, синхронизируя с english_phrases
+    for i, eng_phrase in enumerate(english_phrases):
+        rus_phrase = russian_phrases[i] if i < len(russian_phrases) else eng_phrase  # Заглушка
+        rus_phrases.append(rus_phrase)
 
     # Подсчет дублей фраз
     for phrase in english_phrases:
@@ -23,7 +31,7 @@ def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold, stop
             unique_phrases.add(phrase)
             phrase_order.append(phrase)
 
-    if len(english_phrases) != len(russian_phrases):
+    if len(english_phrases) != len(rus_phrases):
         raise ValueError("Количество английских и русских фраз должно совпадать")
 
     # Исключаем дубли субтитров
@@ -127,7 +135,8 @@ def analyze_phrases(subtitles, english_phrases, russian_phrases, threshold, stop
         'duplicates': phrase_duplicates,
         'multiple_matches': results,
         'total_unique_phrases': len(unique_phrases),
-        'phrase_order': phrase_order
+        'phrase_order': phrase_order,
+        'rus_phrases': rus_phrases  # Новый список
     }
 
 def generate_excerpts(subtitles, phrases, threshold, output_path, selected_matches):

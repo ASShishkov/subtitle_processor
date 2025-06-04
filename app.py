@@ -768,9 +768,12 @@ class SubtitleFilterApp(QMainWindow):
             threshold = 0.5
             self.progress.setMaximum(len(english_phrases))
 
-            selected = {}
-            phrase_pairs = dict(zip(english_phrases, russian_phrases))
+            # Получаем rus_phrases из analyze_phrases
+            analysis = analyze_phrases(subs, english_phrases, russian_phrases, threshold, stop_words=self.stop_words)
+            rus_phrases = analysis['rus_phrases']
+            print(f"Загружено {len(english_phrases)} английских и {len(rus_phrases)} русских фраз")
 
+            selected = {}
             selected_phrases_with_time = []
 
             for row in range(self.table_model.rowCount()):
@@ -783,22 +786,32 @@ class SubtitleFilterApp(QMainWindow):
                 subtitle_text = self.table_model.index(row, 1).data()
                 for sub in subs:
                     if sub.text == subtitle_text:
-                        if phrase not in selected:
-                            selected[phrase] = []
-                        selected[phrase].append({'subtitle': sub, 'text': subtitle_text})
-                        selected_phrases_with_time.append((
-                            sub.start.ordinal,
-                            phrase,
-                            phrase_pairs.get(phrase, ""),
-                            sub
-                        ))
-                        break
+                        try:
+                            idx = english_phrases.index(phrase)
+                            rus_phrase = rus_phrases[idx]
+                            if phrase not in selected:
+                                selected[phrase] = []
+                            selected[phrase].append({'subtitle': sub, 'text': subtitle_text})
+                            selected_phrases_with_time.append((
+                                sub.start.ordinal,
+                                phrase,
+                                rus_phrase,
+                                sub
+                            ))
+                            break
+                        except ValueError:
+                            print(f"Фраза '{phrase}' не найдена в english_phrases")
+                            continue
 
             selected_phrases_with_time.sort(key=lambda x: x[0])
             selected_eng_phrases = [item[1] for item in selected_phrases_with_time]
             selected_rus_phrases = [item[2] for item in selected_phrases_with_time]
 
             selected_count = len(selected_eng_phrases)
+            if selected_count != len(selected_rus_phrases):
+                raise ValueError(
+                    f"Несоответствие: {selected_count} английских фраз против {len(selected_rus_phrases)} русских")
+
             filename = f"{self.path_vars[4].text()}_sub-{selected_count}"
             output_dir = self.path_vars[3].text()
             if not os.path.exists(output_dir):
@@ -816,19 +829,21 @@ class SubtitleFilterApp(QMainWindow):
                 for eng_phrase in selected_eng_phrases:
                     f_eng.write(f"{eng_phrase}\n")
 
-            for i in range(len(english_phrases)):
-                self.progress.setValue(i + 1)
-                QApplication.processEvents()
+            self.progress.setValue(len(english_phrases))
+            QApplication.processEvents()
 
-            self.status_label.setText("Отрывки найдены")
+            self.status_label.setText(f"Создано {selected_count} отрывков")
             self.status_label.setStyleSheet("color: green")
             if self.enable_logging.isChecked():
-                self.logger.info("Отрывки найдены")
+                self.logger.info(f"Создано {selected_count} отрывков")
+            print(f"Сохранено {selected_count} английских и {len(selected_rus_phrases)} русских фраз")
+
         except Exception as e:
             self.status_label.setText(f"Ошибка: {e}")
             self.status_label.setStyleSheet("color: red")
             if self.enable_logging.isChecked():
                 self.logger.error(f"Ошибка при поиске отрывков: {e}")
+            print(f"Ошибка в _find_excerpts_thread: {e}")
         finally:
             self.is_running = False
             self.save_config()
