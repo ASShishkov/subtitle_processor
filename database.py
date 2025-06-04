@@ -70,6 +70,7 @@ class Database:
 
     def save_table_data(self, data):
         """Сохранение данных таблицы в базу данных."""
+        MAX_TABLE_ROWS = 1000  # Максимальное количество записей
         with self.lock:  # Используем блокировку
             cursor = self.conn.cursor()
             try:
@@ -86,8 +87,17 @@ class Database:
                         VALUES (?, ?, ?, ?, ?, ?)
                     ''', (phrase, subtitle_text, selected == "Да", rus_phrase, sort_key, is_manual))
                 self.conn.commit()
+                # Проверка и удаление старых записей
                 cursor.execute('SELECT COUNT(*) FROM table_data')
                 count = cursor.fetchone()[0]
+                if count > MAX_TABLE_ROWS:
+                    cursor.execute('''
+                        DELETE FROM table_data WHERE id IN (
+                            SELECT id FROM table_data ORDER BY id ASC LIMIT ?
+                        )
+                    ''', (count - MAX_TABLE_ROWS,))
+                    self.conn.commit()
+                    print(f"Удалено {count - MAX_TABLE_ROWS} старых записей из table_data")
                 print(f"Сохранено {count} строк в таблице table_data")
             except sqlite3.Error as e:
                 print(f"Ошибка при сохранении данных таблицы: {e}")

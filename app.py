@@ -946,6 +946,7 @@ class SubtitleFilterApp(QMainWindow):
         self.table_model.removeRows(0, self.table_model.rowCount())
         self.selected_matches.clear()
         self.phrase_groups.clear()
+        self.db.save_table_data([])  # Очистка таблицы в базе данных
         self.update_potential_count()
         self.status_label.setText("Очищено")
         self.status_label.setStyleSheet("color: black")
