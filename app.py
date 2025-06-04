@@ -572,12 +572,10 @@ class SubtitleFilterApp(QMainWindow):
             # Формирование данных для таблицы
             data = [
                 ["Полностью совпадающие фразы", f"Кол-во: {len(full_matches_items)}", "", ""],
-                # Добавлена пустая строка для русской фразы
                 *[(phrase, text, selected, rus) for phrase, text, selected, _, rus in full_matches_items],
                 ["Частично совпадающие фразы", f"Кол-во: {len(partial_matches_items)}", "", ""],
-                # Добавлена пустая строка
                 *[(phrase, text, selected, rus) for phrase, text, selected, _, rus in partial_matches_items],
-                ["Ненайденные фразы", f"Кол-во: {len(analysis['not_found'])}", "", ""],  # Добавлена пустая строка
+                ["Ненайденные фразы", f"Кол-во: {len(analysis['not_found'])}", "", ""],
             ]
             row_index = len(data)
             for phrase, text, selected, _, rus_phrase, key in not_found_items:
@@ -586,12 +584,13 @@ class SubtitleFilterApp(QMainWindow):
                     self.phrase_groups[phrase][key] = row_index
                 row_index += 1
 
-            data.append(["Дубли в фразах (информационно)", f"Кол-во: {len(analysis['duplicates'])}", "",
-                         ""])  # Добавлена пустая строка
+            data.append(["Дубли в фразах (информационно)", f"Кол-во: {len(analysis['duplicates'])}", "", ""])
             for phrase, count in analysis['duplicates'].items():
-                data.append([phrase, f"Встречается {count} раз", "", ""])  # Пустая строка для русских фраз
+                data.append([phrase, f"Встречается {count} раз", "", ""])
 
             self._update_table(data)
+            # Сохранение данных таблицы в базу данных
+            self.db.save_table_data(data)
 
             if not (analysis['not_found'] or analysis['partial_matches'] or analysis['duplicates']):
                 total_phrases = analysis['total_unique_phrases'] + len(analysis['duplicates'])

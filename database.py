@@ -70,27 +70,43 @@ class Database:
 
     def save_table_data(self, data):
         """Сохранение данных таблицы в базу данных."""
-        cursor = self.conn.cursor()
-        cursor.execute('DELETE FROM table_data')  # Очистка перед сохранением
-        for row in data:
-            if len(row) == 4:  # Проверяем, что строка содержит все необходимые поля
-                phrase, subtitle_text, selected, rus_phrase = row
-                sort_key = 0  # Значение по умолчанию
-                is_manual = False
-                cursor.execute('''
-                    INSERT INTO table_data (phrase, subtitle_text, selected, rus_phrase, sort_key, is_manual)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (phrase, subtitle_text, selected == "Да", rus_phrase, sort_key, is_manual))
-        self.conn.commit()
+        with self.lock:  # Используем блокировку
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute('DELETE FROM table_data')  # Очистка перед сохранением
+                for row in data:
+                    if len(row) != 4 or not all(isinstance(x, str) for x in row):
+                        print(f"Пропущена некорректная строка: {row}")
+                        continue
+                    phrase, subtitle_text, selected, rus_phrase = row
+                    sort_key = 0  # Значение по умолчанию
+                    is_manual = False
+                    cursor.execute('''
+                        INSERT INTO table_data (phrase, subtitle_text, selected, rus_phrase, sort_key, is_manual)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                    ''', (phrase, subtitle_text, selected == "Да", rus_phrase, sort_key, is_manual))
+                self.conn.commit()
+                cursor.execute('SELECT COUNT(*) FROM table_data')
+                count = cursor.fetchone()[0]
+                print(f"Сохранено {count} строк в таблице table_data")
+            except sqlite3.Error as e:
+                print(f"Ошибка при сохранении данных таблицы: {e}")
 
     def load_table_data(self):
         """Загрузка данных таблицы из базы данных."""
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT phrase, subtitle_text, selected, rus_phrase, sort_key, is_manual FROM table_data')
-        rows = cursor.fetchall()
-        data = []
-        for row in rows:
-            phrase, subtitle_text, selected, rus_phrase, sort_key, is_manual = row
-            selected_str = "Да" if selected else "Нет"
-            data.append([phrase, subtitle_text, selected_str, rus_phrase])
-        return data
+        with self.lock:  # Используем блокировку
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    'SELECT phrase, subtitle_text, selected, rus_phrase, sort_key, is_manual FROM table_data')
+                rows = cursor.fetchall()
+                data = []
+                for row in rows:
+                    phrase, subtitle_text, selected, rus_phrase, sort_key, is_manual = row
+                    selected_str = "Да" if selected else "Нет"
+                    data.append([phrase, subtitle_text, selected_str, rus_phrase])
+                print(f"Загружено {len(data)} строк из таблицы table_data")
+                return data
+            except sqlite3.Error as e:
+                print(f"Ошибка при загрузке данных таблицы: {e}")
+                return []
