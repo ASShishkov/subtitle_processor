@@ -941,17 +941,24 @@ class SubtitleFilterApp(QMainWindow):
             self.logger.info(
                 f"Изменены таймкоды для {len(selected_rows)} строк: {start_secs} сек в начало, {end_secs} сек в конец")
 
-
     def clear_fields(self):
         self.table_model.removeRows(0, self.table_model.rowCount())
         self.selected_matches.clear()
         self.phrase_groups.clear()
-        self.db.save_table_data([])  # Очистка таблицы в базе данных
+        with self.db.lock:  # Используем блокировку для доступа к базе
+            cursor = self.db.conn.cursor()
+            try:
+                cursor.execute('DELETE FROM table_data')  # Очистка таблицы
+                cursor.execute("DELETE FROM sqlite_sequence WHERE name='table_data'")  # Сброс счётчика id
+                self.db.conn.commit()
+                print("Таблица table_data очищена, счётчик id сброшен")
+            except sqlite3.Error as e:
+                print(f"Ошибка при очистке таблицы или сбросе счётчика: {e}")
         self.update_potential_count()
         self.status_label.setText("Очищено")
         self.status_label.setStyleSheet("color: black")
         if self.enable_logging.isChecked():
-            self.logger.info("Таблица очищена")
+            self.logger.info("Таблица очищена в интерфейсе и базе данных, счётчик id сброшен")
 
 
 print("=== ДОШЛИ ДО MAIN БЛОКА ===")
