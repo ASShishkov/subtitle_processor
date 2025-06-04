@@ -3,12 +3,15 @@
 import sqlite3
 from models import create_tables, drop_tables
 from datetime import datetime
+import threading
 
 class Database:
     def __init__(self, db_name='subtitles.db'):
         """Инициализация базы данных."""
-        self.conn = sqlite3.connect(db_name)
+        self.conn = sqlite3.connect(db_name, check_same_thread=False)  # Отключаем проверку потока
+        self.lock = threading.Lock()  # Добавляем блокировку
         create_tables(self.conn)
+        print("Таблицы успешно созданы")
 
     def close(self):
         """Закрытие соединения с базой данных."""
@@ -16,34 +19,54 @@ class Database:
 
     def save_paths(self, subtitles, phrases_en, phrases_ru, output, filename):
         """Сохранение путей в базу данных."""
-        cursor = self.conn.cursor()
-        # Проверяем, есть ли запись, и обновляем её
-        cursor.execute('SELECT id FROM paths')
-        existing_id = cursor.fetchone()
-        if existing_id:
-            cursor.execute('''
-                UPDATE paths SET subtitles = ?, phrases_en = ?, phrases_ru = ?, output = ?, filename = ?, last_updated = CURRENT_TIMESTAMP
-                WHERE id = ?
-            ''', (subtitles, phrases_en, phrases_ru, output, filename, existing_id[0]))
-        else:
-            cursor.execute('''
-                INSERT INTO paths (subtitles, phrases_en, phrases_ru, output, filename)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (subtitles, phrases_en, phrases_ru, output, filename))
-        self.conn.commit()
-        print(f"Пути сохранены: {subtitles}, {phrases_en}, {phrases_ru}, {output}, {filename}")
+        with self.lock:  # Используем блокировку
+            cursor = self.conn.cursor()
+            # Проверка входных данных
+            paths = [subtitles, phrases_en, phrases_ru, output, filename]
+            if not all(isinstance(p, str) and p.strip() for p in paths):
+                print("Ошибка: один или несколько путей пусты или не являются строками")
+                return
+            try:
+                # Проверяем, есть ли запись
+                cursor.execute('SELECT id FROM paths')
+                existing_id = cursor.fetchone()
+                if existing_id:
+                    cursor.execute('''
+                        UPDATE paths SET subtitles = ?, phrases_en = ?, phrases_ru = ?, output = ?, filename = ?, last_updated = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ''', (subtitles, phrases_en, phrases_ru, output, filename, existing_id[0]))
+                else:
+                    cursor.execute('''
+                        INSERT INTO paths (subtitles, phrases_en, phrases_ru, output, filename)
+                        VALUES (?, ?, ?, ?, ?)
+                    ''', (subtitles, phrases_en, phrases_ru, output, filename))
+                self.conn.commit()
+                # Проверка сохранённых данных
+                cursor.execute('SELECT subtitles, phrases_en, phrases_ru, output, filename FROM paths WHERE id = ?',
+                               (existing_id[0] if existing_id else 1,))
+                saved_data = cursor.fetchone()
+                print(f"Пути сохранены в базе данных: {saved_data}")
+            except sqlite3.Error as e:
+                print(f"Ошибка при сохранении путей в базу данных: {e}")
 
     def load_paths(self):
         """Загрузка путей из базы данных."""
-        cursor = self.conn.cursor()
-        cursor.execute('SELECT subtitles, phrases_en, phrases_ru, output, filename FROM paths')
-        result = cursor.fetchone()
-        if result:
-            print(f"Пути загружены из базы данных (последняя запись): {result}")
-            return result
-        default_paths = ['', '', '', '', 'episodes']
-        print(f"Путей в базе данных нет, возвращаем значения по умолчанию: {default_paths}")
-        return default_paths
+        with self.lock:  # Используем блокировку
+            cursor = self.conn.cursor()
+            try:
+                cursor.execute(
+                    'SELECT subtitles, phrases_en, phrases_ru, output, filename FROM paths ORDER BY last_updated DESC LIMIT 1')
+                result = cursor.fetchone()
+                if result:
+                    print(f"Пути загружены из базы данных: {result}")
+                    return result
+                default_paths = ['', '', '', '', 'episodes']
+                print(f"Путей в базе данных нет, возвращены значения по умолчанию: {default_paths}")
+                return default_paths
+            except sqlite3.Error as e:
+                print(f"Ошибка при загрузке путей из базы данных: {e}")
+                default_paths = ['', '', '', '', 'episodes']
+                return default_paths
 
     def save_table_data(self, data):
         """Сохранение данных таблицы в базу данных."""

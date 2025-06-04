@@ -414,7 +414,7 @@ class SubtitleFilterApp(QMainWindow):
         print(f"Установка путей в интерфейс: {paths}")
         for i, path in enumerate(paths):
             self.path_vars[i].setText(path)
-        print("Пути загружены из базы данных")
+        print("Пути успешно установлены в интерфейс")
 
         # Загрузка данных таблицы
         table_data = self.db.load_table_data()
@@ -430,8 +430,11 @@ class SubtitleFilterApp(QMainWindow):
             self.path_vars[3].text(),
             self.path_vars[4].text()
         ]
-        print(f"Сохранение путей в базу данных: {paths}")
-        self.db.save_paths(*paths)
+        if all(isinstance(p, str) and p.strip() for p in paths):
+            print(f"Сохранение путей в базу данных: {paths}")
+            self.db.save_paths(*paths)
+        else:
+            print("Ошибка: не все пути заполнены, сохранение отменено")
 
     def show_context_menu(self, pos):
         index = self.table_view.indexAt(pos)
