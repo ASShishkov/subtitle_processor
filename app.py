@@ -13,6 +13,7 @@ from utils import parse_srt
 import pysrt
 from PyQt5.QtWidgets import QSizePolicy
 from database import Database
+from PyQt5.QtCore import pyqtSignal, QObject
 
 class ComboBoxDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
@@ -41,6 +42,9 @@ class ComboBoxDelegate(QStyledItemDelegate):
         editor.setGeometry(option.rect)
 
 class SubtitleFilterApp(QMainWindow):
+    # Определяем сигналы как атрибуты класса
+    update_progress = pyqtSignal(int)
+    update_status = pyqtSignal(str, str)
 
     def __init__(self, parent=None):
         print("=== ИНИЦИАЛИЗАЦИЯ НАЧАЛАСЬ ===")
@@ -48,41 +52,34 @@ class SubtitleFilterApp(QMainWindow):
         print("1. super().__init__ выполнен")
         self.setWindowTitle("Фильтрация субтитров")
         print("2. Заголовок окна установлен")
-        # Устанавливаем минимальный размер окна
         self.setMinimumSize(600, 400)
-
-        # Устанавливаем начальный размер
         self.resize(1250, 800)
-
-        # Позиционируем окно в центре экрана
         self.center_window()
-
         print("3. Размер и позиция окна установлены")
-
-        # Инициализация базы данных
         self.db = Database()
         print("4. Database инициализирован")
-
         self.is_running = False
         self.selected_matches = {}
         self.phrase_groups = {}
-        self.manual_phrases = {}  # {phrase: rus_phrase} для ручных фраз
+        self.manual_phrases = {}
         self.phrase_order = []
         self.potential_count = 0
         self.modified_subs = None
         print("5. Переменные инициализированы")
-
         print("6. Запуск setup_gui...")
         self.setup_gui()
         print("7. setup_gui завершен")
-
-        print("8. Запуск setup_logging...")
+        # Подключаем сигналы после создания виджетов
+        self.update_progress.connect(self.progress.setValue)
+        self.update_status.connect(
+            lambda text, color: self.status_label.setText(text) or self.status_label.setStyleSheet(f"color: {color}"))
+        print("8. Сигналы подключены")
+        print("9. Запуск setup_logging...")
         self.setup_logging()
-        print("9. setup_logging завершен")
-
-        print("10. Запуск load_config...")
+        print("10. setup_logging завершен")
+        print("11. Запуск load_config...")
         self.load_config()
-        print("11. load_config завершен")
+        print("12. load_config завершен")
         print("=== ИНИЦИАЛИЗАЦИЯ ЗАВЕРШЕНА ===")
 
     def closeEvent(self, event):
@@ -393,7 +390,10 @@ class SubtitleFilterApp(QMainWindow):
                 self.save_config()
 
     def output_path(self):
-        return self.path_vars[2].text()
+        output_dir = self.path_vars[3].text()
+        if os.path.isfile(output_dir):
+            output_dir = os.path.dirname(output_dir)
+        return output_dir or 'output'
 
     def load_config(self):
         print("Загрузка конфига из базы данных...")
@@ -796,9 +796,29 @@ class SubtitleFilterApp(QMainWindow):
                                 new_state == Qt.CheckState.Checked)
 
     def find_excerpts(self):
-        if not self.path_vars[0].text() or not self.path_vars[1].text():
-            QMessageBox.critical(self, "Ошибка", "Укажите пути к файлам")
+        # Проверяем все необходимые пути
+        if not self.path_vars[0].text():
+            QMessageBox.critical(self, "Ошибка", "Укажите путь к файлу субтитров")
             return
+        if not self.path_vars[1].text():
+            QMessageBox.critical(self, "Ошибка", "Укажите путь к файлу английских фраз")
+            return
+        if not self.path_vars[3].text():
+            QMessageBox.critical(self, "Ошибка", "Укажите папку вывода")
+            return
+        if not self.path_vars[4].text():
+            QMessageBox.critical(self, "Ошибка", "Укажите префикс имени выходного файла")
+            return
+        # Проверяем, что path_vars[3] — это директория или файл
+        output_path = self.path_vars[3].text()
+        if os.path.isfile(output_path):
+            output_path = os.path.dirname(output_path)  # Используем родительскую директорию
+        if not os.path.exists(output_path):
+            try:
+                os.makedirs(output_path)
+            except OSError as e:
+                QMessageBox.critical(self, "Ошибка", f"Не удалось создать папку вывода '{output_path}': {e}")
+                return
         self.is_running = True
         self.status_label.setText("Поиск отрывков...")
         self.status_label.setStyleSheet("color: black")
@@ -845,17 +865,28 @@ class SubtitleFilterApp(QMainWindow):
             selected_count = len(selected_eng_phrases)
             filename = f"{self.path_vars[4].text()}_sub-{selected_count}"
             output_dir = self.path_vars[3].text()
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-            output_path = os.path.join(output_dir, f"Timestamps_{filename}.srt")
+            print(f"Папка вывода: {output_dir}")
+            if os.path.isfile(output_dir):
+                output_dir = os.path.dirname(output_dir)
+                print(f"Скорректированная папка вывода: {output_dir}")
+            try:
+                if not os.path.exists(output_dir):
+                    os.makedirs(output_dir)
+            except OSError as e:
+                raise Exception(f"Не удалось создать папку вывода '{output_dir}': {e}")
+
+            output_path = os.path.join(output_dir,
+                                       f"FinalExcerpts_{filename}.srt")  # Изменено с Timestamps на FinalExcerpts
+            rus_words_file = os.path.join(output_dir, f"russian_words_{filename}.txt")
+            eng_words_file = os.path.join(output_dir, f"english_words_{filename}.txt")
+            print(f"Выходные файлы: {output_path}, {rus_words_file}, {eng_words_file}")
+
             generate_excerpts(subs, english_phrases, threshold, output_path, selected)
 
-            rus_words_file = os.path.join(output_dir, f"russian_words_{filename}.txt")
             with open(rus_words_file, 'w', encoding='utf-8') as f_rus:
                 for rus_phrase in selected_rus_phrases:
                     f_rus.write(f"{rus_phrase}\n")
 
-            eng_words_file = os.path.join(output_dir, f"english_words_{filename}.txt")
             with open(eng_words_file, 'w', encoding='utf-8') as f_eng:
                 for eng_phrase in selected_eng_phrases:
                     f_eng.write(f"{eng_phrase}\n")
@@ -881,25 +912,42 @@ class SubtitleFilterApp(QMainWindow):
             QApplication.processEvents()
 
     def get_timestamps(self):
-        if not self.path_vars[0].text() or not self.path_vars[1].text():
-            QMessageBox.critical(self, "Ошибка", "Укажите пути к файлам")
+        print(
+            f"Пути: sub={self.path_vars[0].text()}, eng={self.path_vars[1].text()}, rus={self.path_vars[2].text()}, out={self.path_vars[3].text()}, prefix={self.path_vars[4].text()}")
+        if not self.path_vars[0].text():
+            QMessageBox.critical(self, "Ошибка", "Укажите путь к файлу субтитров")
+            return
+        if not self.path_vars[1].text():
+            QMessageBox.critical(self, "Ошибка", "Укажите путь к файлу английских фраз")
+            return
+        if not self.path_vars[3].text():
+            QMessageBox.critical(self, "Ошибка", "Укажите папку вывода")
+            return
+        if not self.path_vars[4].text():
+            QMessageBox.critical(self, "Ошибка", "Укажите префикс имени выходного файла")
             return
         self.is_running = True
         self.status_label.setText("Получение таймкодов...")
         self.status_label.setStyleSheet("color: black")
-        threading.Thread(target=self._get_timestamps_thread).start()
+        threading.Thread(target=self._get_timestamps_thread, daemon=True).start()  # Установлен daemon=True
 
     def _get_timestamps_thread(self):
         try:
+            print("Запуск _get_timestamps_thread")
             subs = self.modified_subs if self.modified_subs is not None else parse_srt(self.path_vars[0].text())
+            print(f"Загружено субтитров: {len(subs)}")
             with open(self.path_vars[1].text(), 'r', encoding='utf-8') as f:
                 phrases = [line.strip() for line in f if line.strip()]
+            print(f"Загружено фраз: {len(phrases)}")
             threshold = self.match_threshold.value() / 100.0
-            self.progress.setMaximum(len(phrases))
+            print(f"Порог совпадения: {threshold}")
+            self.update_progress.emit(0)  # Начальный прогресс
 
             selected = {}
+            print(f"Selected matches: {self.selected_matches}")
             for (phrase, subtitle_text), is_selected in self.selected_matches.items():
                 if is_selected:
+                    print(f"Выбрано: фраза='{phrase}', субтитр='{subtitle_text}'")
                     for sub in subs:
                         if sub.text == subtitle_text:
                             if phrase not in selected:
@@ -907,25 +955,48 @@ class SubtitleFilterApp(QMainWindow):
                             selected[phrase].append({'subtitle': sub, 'text': phrase})
 
             selected_count = len([k for k, v in self.selected_matches.items() if v])
+            print(f"Количество выбранных совпадений: {selected_count}")
+            if selected_count == 0:
+                self.update_status.emit("Ошибка: нет выбранных фраз", "red")
+                if self.enable_logging.isChecked():
+                    self.logger.error("Нет выбранных фраз для создания таймкодов")
+                return
+
             import re
-            clean_filename = re.sub(r'[^a-zA-Z0-9_-]', '', self.path_vars[3].text())
+            clean_filename = re.sub(r'[^a-zA-Z0-9_-]', '', self.path_vars[4].text())
             if not clean_filename:
                 clean_filename = "episodes"
             filename = f"{clean_filename}_sub-{selected_count}"
-            output_path = os.path.join(self.path_vars[2].text(), f"FinalExcerpts_{filename}.srt")
+            output_dir = self.path_vars[3].text()
+            print(f"Папка вывода: {output_dir}")
+            if os.path.isfile(output_dir):
+                output_dir = os.path.dirname(output_dir)
+                print(f"Скорректированная папка вывода: {output_dir}")
+            if not os.path.exists(output_dir):
+                try:
+                    os.makedirs(output_dir)
+                    print(f"Создана папка: {output_dir}")
+                except OSError as e:
+                    raise Exception(f"Не удалось создать папку вывода '{output_dir}': {e}")
+            # Проверяем права на запись
+            if not os.access(output_dir, os.W_OK):
+                raise Exception(f"Нет прав на запись в папку '{output_dir}'")
+            output_path = os.path.join(output_dir, f"FinalExcerpts_{filename}.srt")
+            print(f"Выходной файл: {output_path}")
+
             generate_timestamps(subs, phrases, threshold, output_path, selected)
-            for i in range(len(phrases)):
-                self.progress.setValue(i + 1)
-                QApplication.processEvents()
-            self.status_label.setText("Таймкоды получены")
-            self.status_label.setStyleSheet("color: green")
+            print(f"Файл таймкодов создан: {output_path}")
+
+            self.update_progress.emit(len(phrases))
+            self.update_status.emit("Таймкоды получены", "green")
             if self.enable_logging.isChecked():
                 self.logger.info("Таймкоды получены")
         except Exception as e:
-            self.status_label.setText(f"Ошибка: {e}")
-            self.status_label.setStyleSheet("color: red")
+            error_msg = f"Ошибка в _get_timestamps_thread: {str(e)}"
+            print(error_msg)
+            self.update_status.emit(f"Ошибка: {e}", "red")
             if self.enable_logging.isChecked():
-                self.logger.error(f"Ошибка при получении таймкодов: {e}")
+                self.logger.error(error_msg)
         finally:
             self.is_running = False
             self.save_config()
