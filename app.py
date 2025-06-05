@@ -14,6 +14,7 @@ import pysrt
 from PyQt5.QtWidgets import QSizePolicy
 from database import Database
 from PyQt5.QtCore import pyqtSignal, QObject
+import time
 
 class ComboBoxDelegate(QStyledItemDelegate):
     def __init__(self, parent=None):
@@ -876,7 +877,7 @@ class SubtitleFilterApp(QMainWindow):
                 raise Exception(f"Не удалось создать папку вывода '{output_dir}': {e}")
 
             output_path = os.path.join(output_dir,
-                                       f"FinalExcerpts_{filename}.srt")  # Изменено с Timestamps на FinalExcerpts
+                                       f"Timestamps_{filename}.srt")  #Имя файла найденных отрывков
             rus_words_file = os.path.join(output_dir, f"russian_words_{filename}.txt")
             eng_words_file = os.path.join(output_dir, f"english_words_{filename}.txt")
             print(f"Выходные файлы: {output_path}, {rus_words_file}, {eng_words_file}")
@@ -966,6 +967,7 @@ class SubtitleFilterApp(QMainWindow):
             clean_filename = re.sub(r'[^a-zA-Z0-9_-]', '', self.path_vars[4].text())
             if not clean_filename:
                 clean_filename = "episodes"
+            timestamp = int(time.time())  # Уникальная метка времени
             filename = f"{clean_filename}_sub-{selected_count}"
             output_dir = self.path_vars[3].text()
             print(f"Папка вывода: {output_dir}")
@@ -981,7 +983,7 @@ class SubtitleFilterApp(QMainWindow):
             # Проверяем права на запись
             if not os.access(output_dir, os.W_OK):
                 raise Exception(f"Нет прав на запись в папку '{output_dir}'")
-            output_path = os.path.join(output_dir, f"FinalExcerpts_{filename}.srt")
+            output_path = os.path.join(output_dir, f"Short_timestamp_{filename}.srt")
             print(f"Выходной файл: {output_path}")
 
             generate_timestamps(subs, phrases, threshold, output_path, selected)
