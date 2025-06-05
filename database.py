@@ -70,24 +70,23 @@ class Database:
 
     def save_table_data(self, data):
         """Сохранение данных таблицы в базу данных."""
-        MAX_TABLE_ROWS = 1000  # Максимальное количество записей
-        with self.lock:  # Используем блокировку
+        MAX_TABLE_ROWS = 1000
+        with self.lock:
             cursor = self.conn.cursor()
             try:
-                cursor.execute('DELETE FROM table_data')  # Очистка перед сохранением
                 for row in data:
+                    print(f"Сохраняем строку в базу данных: {row}")
                     if len(row) != 4 or not all(isinstance(x, str) for x in row):
                         print(f"Пропущена некорректная строка: {row}")
                         continue
                     phrase, subtitle_text, selected, rus_phrase = row
-                    sort_key = 0  # Значение по умолчанию
-                    is_manual = False
+                    sort_key = 0
+                    is_manual = True if subtitle_text == "Ручное добавление" or selected == "Да" else False
                     cursor.execute('''
                         INSERT INTO table_data (phrase, subtitle_text, selected, rus_phrase, sort_key, is_manual)
                         VALUES (?, ?, ?, ?, ?, ?)
                     ''', (phrase, subtitle_text, selected == "Да", rus_phrase, sort_key, is_manual))
                 self.conn.commit()
-                # Проверка и удаление старых записей
                 cursor.execute('SELECT COUNT(*) FROM table_data')
                 count = cursor.fetchone()[0]
                 if count > MAX_TABLE_ROWS:
@@ -104,7 +103,7 @@ class Database:
 
     def load_table_data(self):
         """Загрузка данных таблицы из базы данных."""
-        with self.lock:  # Используем блокировку
+        with self.lock:
             cursor = self.conn.cursor()
             try:
                 cursor.execute(
@@ -114,8 +113,8 @@ class Database:
                 for row in rows:
                     phrase, subtitle_text, selected, rus_phrase, sort_key, is_manual = row
                     selected_str = "Да" if selected else "Нет"
-                    data.append([phrase, subtitle_text, selected_str, rus_phrase])
-                print(f"Загружено {len(data)} строк из таблицы table_data")
+                    data.append([phrase or "", subtitle_text or "", selected_str, rus_phrase or ""])
+                print(f"Загружено {len(data)} строк из таблицы table_data: {data}")
                 return data
             except sqlite3.Error as e:
                 print(f"Ошибка при загрузке данных таблицы: {e}")

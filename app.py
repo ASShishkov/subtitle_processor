@@ -66,6 +66,7 @@ class SubtitleFilterApp(QMainWindow):
         self.is_running = False
         self.selected_matches = {}
         self.phrase_groups = {}
+        self.manual_phrases = {}  # {phrase: rus_phrase} для ручных фраз
         self.phrase_order = []
         self.potential_count = 0
         self.modified_subs = None
@@ -615,58 +616,108 @@ class SubtitleFilterApp(QMainWindow):
                 self.logger.error(f"Ошибка при проверке: {e}")
 
     def manual_find_phrase(self):
-        """Функция для ручного поиска и добавления отрывка."""
+        """Функция для ручного поиска и добавления отрывка на основе выбранной строки."""
+        from utils import find_matches
         srt_path = self.path_vars[0].text()
         if not os.path.exists(srt_path):
             QMessageBox.warning(self, "Ошибка", "Файл субтитров не найден!")
             return
 
+        # Получаем текущую выбранную строку в таблице
+        selected_indexes = self.table_view.selectedIndexes()
+        if not selected_indexes:
+            QMessageBox.warning(self, "Ошибка", "Выберите строку в таблице для поиска!")
+            return
+
+        # Берём данные из первой выбранной строки
+        row = selected_indexes[0].row()
+        eng_phrase = self.table_model.index(row, 0).data() or ""
+        rus_phrase = self.table_model.index(row, 3).data() or ""
+        print(f"Выбрана строка: английская фраза='{eng_phrase}', русская фраза='{rus_phrase}'")
+
+        if not eng_phrase:
+            QMessageBox.warning(self, "Ошибка", "В выбранной строке отсутствует английская фраза!")
+            return
+
+        # Открываем файл субтитров в текстовом редакторе
         subprocess.Popen(['notepad.exe', srt_path])
 
-        phrase, ok = QInputDialog.getText(self, "Ручной поиск", "Введите текст отрывка, найденного вручную:")
-        if ok and phrase:
-            subs = parse_srt(srt_path)
-            for sub in subs:
-                if phrase.lower() in sub.text.lower():
-                    key = (phrase, sub.text)
-                    self.selected_matches[key] = True
-                    self.phrase_groups[phrase] = {key: self.table_model.rowCount()}
-                    self._update_table_row(phrase, sub.text, "Да", sub.start.ordinal, "",
-                                           is_manual=True)  # Добавлен флаг
-                    QMessageBox.information(self, "Успех", f"Отрывок '{phrase}' добавлен с временем {sub.start}!")
-                    return
+        # Запрашиваем у пользователя фразу для поиска в субтитрах
+        search_phrase, ok = QInputDialog.getText(self, "Ручной поиск",
+                                                 f"Введите текст для поиска в субтитрах (на основе '{eng_phrase}'):")
+        if not ok or not search_phrase.strip():
+            return
 
-            key = (phrase, "Ручное добавление")
+        # Сохраняем фразу в self.manual_phrases
+        self.manual_phrases[eng_phrase] = rus_phrase
+        print(f"Добавлена ручная фраза: {eng_phrase} -> {rus_phrase}")
+
+        # Загружаем субтитры
+        subs = parse_srt(srt_path)
+        subtitle_found = False
+        for sub in subs:
+            similarity, matched_phrase, matched_text = find_matches(sub.text, search_phrase, threshold=0.5,
+                                                                    stop_words=self.stop_words)
+            if similarity >= 0.5:
+                key = (eng_phrase, sub.text)
+                self.selected_matches[key] = True
+                self.phrase_groups[eng_phrase] = {key: self.table_model.rowCount()}
+                # Создаём элементы строки
+                row_items = [
+                    QStandardItem(eng_phrase),
+                    QStandardItem(sub.text),
+                    QStandardItem(""),
+                    QStandardItem(rus_phrase)
+                ]
+                row_items[2].setCheckState(Qt.Checked)
+                row_items[2].setData(sub.start.ordinal, Qt.UserRole)
+                row_items[2].setData(True, Qt.UserRole + 1)  # Флаг ручного добавления
+                self.table_model.appendRow(row_items)
+                # Сохраняем в базу данных
+                data_to_save = [eng_phrase, sub.text, "Да", rus_phrase]
+                print(f"Сохраняем в базу данных: {data_to_save}")
+                self.db.save_table_data([data_to_save])
+                QMessageBox.information(self, "Успех", f"Отрывок '{eng_phrase}' добавлен с временем {sub.start}!")
+                self.table_view.resizeRowsToContents()
+                self.update_column_widths()
+                subtitle_found = True
+                if self.enable_logging.isChecked():
+                    self.logger.info(
+                        f"Добавлена ручная фраза: '{eng_phrase}' с субтитром '{sub.text}' и русской фразой '{rus_phrase}'")
+                break
+
+        if not subtitle_found:
+            # Запрашиваем текст субтитра у пользователя
+            subtitle_text, ok = QInputDialog.getText(self, "Ручной поиск",
+                                                     "Введите текст найденного субтитра (или оставьте пустым):")
+            if not ok:
+                return
+            subtitle_text = subtitle_text.strip() if subtitle_text.strip() else "Ручное добавление"
+            key = (eng_phrase, subtitle_text)
             self.selected_matches[key] = False
-            self.phrase_groups[phrase] = {key: self.table_model.rowCount()}
-            self._update_table_row(phrase, "Ручное добавление", "Нет", 0, "", is_manual=True)  # Добавлен флаг
+            self.phrase_groups[eng_phrase] = {key: self.table_model.rowCount()}
+            # Создаём элементы строки
+            row_items = [
+                QStandardItem(eng_phrase),
+                QStandardItem(subtitle_text),
+                QStandardItem(""),
+                QStandardItem(rus_phrase)
+            ]
+            row_items[2].setCheckState(Qt.Unchecked)
+            row_items[2].setData(0, Qt.UserRole)
+            row_items[2].setData(True, Qt.UserRole + 1)  # Флаг ручного добавления
+            self.table_model.appendRow(row_items)
+            # Сохраняем в базу данных
+            data_to_save = [eng_phrase, subtitle_text, "Нет", rus_phrase]
+            print(f"Сохраняем в базу данных: {data_to_save}")
+            self.db.save_table_data([data_to_save])
             QMessageBox.warning(self, "Предупреждение",
-                                f"Точное совпадение для '{phrase}' не найдено. Добавлено как ручное.")
-
-        subprocess.Popen(['notepad.exe', srt_path])
-
-        # Запрашиваем у пользователя текст отрывка
-        phrase, ok = QInputDialog.getText(self, "Ручной поиск", "Введите текст отрывка, найденного вручную:")
-        if ok and phrase:
-            # Поиск точного совпадения в субтитрах
-            subs = parse_srt(srt_path)
-            for sub in subs:
-                if phrase.lower() in sub.text.lower():
-                    # Добавляем в таблицу как полное совпадение
-                    key = (phrase, sub.text)
-                    self.selected_matches[key] = True
-                    self.phrase_groups[phrase] = {key: self.table_model.rowCount()}
-                    self._update_table_row(phrase, sub.text, "Да", sub.start.ordinal, "")
-                    QMessageBox.information(self, "Успех", f"Отрывок '{phrase}' добавлен с временем {sub.start}!")
-                    return
-
-            # Если совпадение не найдено, добавляем как частичное
-            key = (phrase, "Ручное добавление")
-            self.selected_matches[key] = False
-            self.phrase_groups[phrase] = {key: self.table_model.rowCount()}
-            self._update_table_row(phrase, "Ручное добавление", "Нет", 0, "")
-            QMessageBox.warning(self, "Предупреждение",
-                                f"Точное совпадение для '{phrase}' не найдено. Добавлено как ручное.")
+                                f"Точное совпадение для '{search_phrase}' не найдено. Добавлено с субтитром '{subtitle_text}'.")
+            self.table_view.resizeRowsToContents()
+            self.update_column_widths()
+            if self.enable_logging.isChecked():
+                self.logger.info(
+                    f"Добавлена ручная фраза: '{eng_phrase}' с субтитром '{subtitle_text}' и русской фразой '{rus_phrase}'")
 
     def _update_table_row(self, phrase, text, selected, sort_key, rus_phrase, is_manual=False):
         """Обновление таблицы с новой строкой."""
@@ -692,29 +743,25 @@ class SubtitleFilterApp(QMainWindow):
         self.update_column_widths()
 
     def _update_table(self, data):
+        print(f"Обновляем таблицу с данными: {data}")
         self.table_model.removeRows(0, self.table_model.rowCount())
-        # Обновляем заголовки, добавляя колонку для русских фраз
         self.table_model.setHorizontalHeaderLabels(["Фраза", "Субтитр", "Выбрано?", "Русская фраза"])
 
         for row in data:
-            # Создаём элементы строки
-            items = [QStandardItem(str(cell)) if i < 2 else QStandardItem("") for i, cell in enumerate(row[:3])]
-            # Добавляем русскую фразу, если она есть
-            if len(row) > 3:
-                items.append(QStandardItem(row[3] if row[3] else ""))
-            else:
-                items.append(QStandardItem(""))
-
+            items = [
+                QStandardItem(str(row[0]) or ""),
+                QStandardItem(str(row[1]) or ""),
+                QStandardItem(""),
+                QStandardItem(str(row[3]) or "")
+            ]
             if row[0] not in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
                               "Дубли в фразах (информационно)"] and (row[0] or row[1]):
                 item = items[2]
                 item.setData(Qt.CheckState.Checked if row[2] == "Да" else Qt.CheckState.Unchecked, Qt.CheckStateRole)
-                item.setData("", Qt.DisplayRole)
                 item.setEditable(False)
-                if len(row) > 3 and isinstance(row[3], (int, float)):
-                    items[2].setData(row[3], Qt.UserRole)
+                if len(row) > 4 and isinstance(row[4], (int, float)):
+                    item.setData(row[4], Qt.UserRole)
                 if self.show_matches.isChecked():
-                    # Выделяем совпадающие слова
                     phrase = row[0]
                     subtitle = row[1]
                     matched_words = self._get_matched_words(phrase, subtitle)
@@ -727,7 +774,7 @@ class SubtitleFilterApp(QMainWindow):
         for row in range(self.table_model.rowCount()):
             if self.table_model.index(row, 0).data() in ["Полностью совпадающие фразы", "Частично совпадающие фразы",
                                                          "Ненайденные фразы", "Дубли в фразах (информационно)"]:
-                for col in range(4):  # Обновлено до 4 колонок
+                for col in range(4):
                     item = self.table_model.item(row, col)
                     if item:
                         font = QFont()
@@ -759,19 +806,11 @@ class SubtitleFilterApp(QMainWindow):
 
     def _find_excerpts_thread(self):
         try:
-            # Используем modified_subs, если доступен, иначе загружаем исходный файл
             subs = self.modified_subs if self.modified_subs is not None else parse_srt(self.path_vars[0].text())
             with open(self.path_vars[1].text(), 'r', encoding='utf-8') as f_en:
                 english_phrases = [line.strip() for line in f_en if line.strip()]
-            with open(self.path_vars[2].text(), 'r', encoding='utf-8') as f_ru:
-                russian_phrases = [line.strip() for line in f_ru if line.strip()]
             threshold = 0.5
             self.progress.setMaximum(len(english_phrases))
-
-            # Получаем rus_phrases из analyze_phrases
-            analysis = analyze_phrases(subs, english_phrases, russian_phrases, threshold, stop_words=self.stop_words)
-            rus_phrases = analysis['rus_phrases']
-            print(f"Загружено {len(english_phrases)} английских и {len(rus_phrases)} русских фраз")
 
             selected = {}
             selected_phrases_with_time = []
@@ -784,34 +823,26 @@ class SubtitleFilterApp(QMainWindow):
                     continue
 
                 subtitle_text = self.table_model.index(row, 1).data()
+                rus_phrase = self.table_model.index(row, 3).data() or ""
+                print(f"Обрабатываем строку: фраза='{phrase}', субтитр='{subtitle_text}', русская фраза='{rus_phrase}'")
                 for sub in subs:
                     if sub.text == subtitle_text:
-                        try:
-                            idx = english_phrases.index(phrase)
-                            rus_phrase = rus_phrases[idx]
-                            if phrase not in selected:
-                                selected[phrase] = []
-                            selected[phrase].append({'subtitle': sub, 'text': subtitle_text})
-                            selected_phrases_with_time.append((
-                                sub.start.ordinal,
-                                phrase,
-                                rus_phrase,
-                                sub
-                            ))
-                            break
-                        except ValueError:
-                            print(f"Фраза '{phrase}' не найдена в english_phrases")
-                            continue
+                        if phrase not in selected:
+                            selected[phrase] = []
+                        selected[phrase].append({'subtitle': sub, 'text': subtitle_text})
+                        selected_phrases_with_time.append((
+                            sub.start.ordinal,
+                            phrase,
+                            rus_phrase,
+                            sub
+                        ))
+                        break
 
             selected_phrases_with_time.sort(key=lambda x: x[0])
             selected_eng_phrases = [item[1] for item in selected_phrases_with_time]
             selected_rus_phrases = [item[2] for item in selected_phrases_with_time]
 
             selected_count = len(selected_eng_phrases)
-            if selected_count != len(selected_rus_phrases):
-                raise ValueError(
-                    f"Несоответствие: {selected_count} английских фраз против {len(selected_rus_phrases)} русских")
-
             filename = f"{self.path_vars[4].text()}_sub-{selected_count}"
             output_dir = self.path_vars[3].text()
             if not os.path.exists(output_dir):
