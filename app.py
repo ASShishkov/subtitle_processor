@@ -945,11 +945,20 @@ class SubtitleFilterApp(QMainWindow):
             self.update_progress.emit(0)  # Начальный прогресс
 
             selected = {}
-            print(f"Selected matches: {self.selected_matches}")
+            print("Формирование selected на основе таблицы")
 
-            # Формируем словарь selected, учитывая только выбранные пары (фраза, субтитр)
-            for (phrase, subtitle_text), is_selected in self.selected_matches.items():
-                if is_selected:  # Добавляем только если чекбокс активен
+            # Формируем selected на основе строк таблицы с активными чекбоксами
+            for row in range(self.table_model.rowCount()):
+                phrase = self.table_model.index(row, 0).data()
+                subtitle_text = self.table_model.index(row, 1).data()
+                is_selected = self.table_model.data(self.table_model.index(row, 2), Qt.CheckStateRole) == Qt.Checked
+
+                # Пропускаем заголовочные строки
+                if phrase in ["Полностью совпадающие фразы", "Частично совпадающие фразы",
+                              "Ненайденные фразы", "Дубли в фразах (информационно)"]:
+                    continue
+
+                if is_selected:
                     print(f"Обрабатываем: фраза='{phrase}', субтитр='{subtitle_text}', выбрано={is_selected}")
                     for sub in subs:
                         if sub.text == subtitle_text:
@@ -959,7 +968,7 @@ class SubtitleFilterApp(QMainWindow):
                             if not any(item['subtitle'].text == subtitle_text for item in selected[phrase]):
                                 selected[phrase].append({'subtitle': sub, 'text': phrase})
                                 print(f"Добавлено в selected: фраза='{phrase}', субтитр='{sub.text}'")
-                            break  # Прерываем после нахождения совпадения для данного субтитра
+                            break  # Прерываем после нахождения совпадения
 
             # Подсчитываем общее количество отрывков (уникальных пар фраза-субтитр)
             selected_count = sum(len(matches) for matches in selected.values())
