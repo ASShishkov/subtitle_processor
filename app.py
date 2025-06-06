@@ -946,16 +946,23 @@ class SubtitleFilterApp(QMainWindow):
 
             selected = {}
             print(f"Selected matches: {self.selected_matches}")
+
+            # Формируем словарь selected, учитывая только выбранные пары (фраза, субтитр)
             for (phrase, subtitle_text), is_selected in self.selected_matches.items():
-                if is_selected:
-                    print(f"Выбрано: фраза='{phrase}', субтитр='{subtitle_text}'")
+                if is_selected:  # Добавляем только если чекбокс активен
+                    print(f"Обрабатываем: фраза='{phrase}', субтитр='{subtitle_text}', выбрано={is_selected}")
                     for sub in subs:
                         if sub.text == subtitle_text:
                             if phrase not in selected:
                                 selected[phrase] = []
-                            selected[phrase].append({'subtitle': sub, 'text': phrase})
+                            # Проверяем, не добавлен ли уже этот субтитр для данной фразы
+                            if not any(item['subtitle'].text == subtitle_text for item in selected[phrase]):
+                                selected[phrase].append({'subtitle': sub, 'text': phrase})
+                                print(f"Добавлено в selected: фраза='{phrase}', субтитр='{sub.text}'")
+                            break  # Прерываем после нахождения совпадения для данного субтитра
 
-            selected_count = len([k for k, v in self.selected_matches.items() if v])
+            # Подсчитываем общее количество отрывков (уникальных пар фраза-субтитр)
+            selected_count = sum(len(matches) for matches in selected.values())
             print(f"Количество выбранных совпадений: {selected_count}")
             if selected_count == 0:
                 self.update_status.emit("Ошибка: нет выбранных фраз", "red")
@@ -990,9 +997,9 @@ class SubtitleFilterApp(QMainWindow):
             print(f"Файл таймкодов создан: {output_path}")
 
             self.update_progress.emit(len(phrases))
-            self.update_status.emit("Таймкоды получены", "green")
+            self.update_status.emit(f"Таймкоды получены, создано {selected_count} отрывков", "green")
             if self.enable_logging.isChecked():
-                self.logger.info("Таймкоды получены")
+                self.logger.info(f"Таймкоды получены, создано {selected_count} отрывков")
         except Exception as e:
             error_msg = f"Ошибка в _get_timestamps_thread: {str(e)}"
             print(error_msg)
