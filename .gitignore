@@ -1,25 +1,20 @@
-# Python compiled files
-*.pyc
+# Python
 __pycache__/
+*.pyc
 *.pyo
 *.pyd
-
-# Virtual environments
-venv/
+.Python
 env/
+venv/
 .venv/
-ENV/
 
-# IDE files
+# IDE settings
 .idea/
+.vscode/
 
-# System files
-.DS_Store
-Thumbs.db
+# Local database files
+subtitles.db
+*.sqlite3
 
-# Output files
-output/
-*.log
-
-# Optional: ignore config.ini if it contains sensitive data
-# config.ini
+# Secrets - НИКОГДА не добавляйте ключи API в Git!
+.env

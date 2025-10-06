@@ -494,17 +494,22 @@ class SubtitleFilterApp(QMainWindow):
 
     def update_potential_count(self):
         count = 0
-        selected_phrases = set()
+        print("Обновление количества потенциальных отрывков")
         for row in range(self.table_model.rowCount()):
             phrase = self.table_model.index(row, 0).data()
-            choice = self.table_model.index(row, 2).data()
-            if phrase not in ["Полностью совпадающие фразы", "Частично совпадающие фразы", "Ненайденные фразы",
-                              "Дубли в фразах"] and choice.startswith("Субтитр"):
-                if phrase not in selected_phrases:
-                    selected_phrases.add(phrase)
-                    count += 1
+            # Пропускаем заголовочные строки
+            if phrase in ["Полностью совпадающие фразы", "Частично совпадающие фразы",
+                          "Ненайденные фразы", "Дубли в фразах (информационно)"]:
+                continue
+            # Проверяем, активен ли чекбокс в столбце "Выбрано?"
+            is_selected = self.table_model.data(self.table_model.index(row, 2), Qt.CheckStateRole) == Qt.Checked
+            if is_selected:
+                count += 1
+                print(f"Учтена строка: фраза='{phrase}', субтитр='{self.table_model.index(row, 1).data()}'")
+
         self.potential_count = count
         self.potential_label.setText(f"Потенциальных отрывков: {count}")
+        print(f"Итоговое количество потенциальных отрывков: {count}")
 
     def update_sorting(self):
         self.check_phrases()
