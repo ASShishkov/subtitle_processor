@@ -4,7 +4,7 @@
 ![GUI](https://img.shields.io/badge/GUI-PyQt5-green)
 ![Status](https://img.shields.io/badge/Status-Production-orange)
 
-![Demo Animation](img/demo.gif)
+![Demo Animation](tools/subtitle_extractor/img/demo.gif)
 
 **A comprehensive ETL (Extract, Transform, Load) pipeline for language learners.**
 This suite automates the creation of high-quality Anki flashcards from raw video content, combining a **Desktop GUI** for precision work and **CLI tools** for batch processing.

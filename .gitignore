@@ -17,9 +17,28 @@ ENV/
 .DS_Store
 Thumbs.db
 
-# Output files
+# --- PROJET SPECIFIC ---
+
+# 1. Output (Results)
 output/
+dist/
+build/
+*.egg-info/
+*.exe
 *.log
 
-# Optional: ignore config.ini if it contains sensitive data
-# config.ini
+# 2. Input & Media (Don't upload heavy files)
+input/
+data/
+*.mp4
+*.mkv
+*.avi
+*.mp3
+*.wav
+
+# 3. Security (KEYS & SECRETS)
+keys/*
+!keys/*.txt
+*.json
+# 4. Database (Local session data)
+*.db
