@@ -1,3 +1,7 @@
+# ==========================================
+# PYTHON & SYSTEM BASICS
+# ==========================================
+
 # Python compiled files
 *.pyc
 __pycache__/
@@ -10,16 +14,20 @@ env/
 .venv/
 ENV/
 
-# IDE files
+# IDE settings (PyCharm, VS Code)
 .idea/
+.vscode/
 
-# System files
+# System files (Mac/Windows)
 .DS_Store
 Thumbs.db
 
-# --- PROJET SPECIFIC ---
 
-# 1. Output (Results)
+# ==========================================
+# PROJECT SPECIFIC
+# ==========================================
+
+# 1. Output & Builds (Don't track results)
 output/
 dist/
 build/
@@ -27,18 +35,43 @@ build/
 *.exe
 *.log
 
-# 2. Input & Media (Don't upload heavy files)
-input/
-data/
+# 2. Heavy Media Files (Don't track video/audio sources)
+# We ignore generic media types everywhere to save space
 *.mp4
 *.mkv
 *.avi
 *.mp3
 *.wav
+*.ogg
 
-# 3. Security (KEYS & SECRETS)
-keys/*
+# 3. Security (KEYS & SECRETS) - CRITICAL!
+# Ignore all JSONs in keys folder, but keep the instruction text
+**/keys/*.json
 !keys/*.txt
+!keys/*.md
+# General security just in case
 *.json
+*.env
+
 # 4. Database (Local session data)
 *.db
+
+
+# ==========================================
+# INPUT FOLDER STRATEGY
+# ==========================================
+# Goal: Keep folder structure and example text files,
+# but ignore user's media files.
+
+# 1. Ignore everything inside the input folder
+tools/deck_builder/input/**/*
+
+# 2. Exception: Keep the folders themselves
+!tools/deck_builder/input/**/
+
+# 3. Exception: Keep placeholder files (to preserve structure)
+!tools/deck_builder/input/**/.gitkeep
+
+# 4. Exception: Keep example text files (Required for the program)
+# Change extensions if your example files are not .txt
+!tools/deck_builder/input/**/*.txt
