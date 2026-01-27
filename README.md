@@ -10,7 +10,7 @@
 ![Subtitle Extractor Demo](img/demo_animation(subtitle_extractor).gif)
 
 ### 2. Deck Builder (Generation Process)
-![Deck Builder Demo](assets/demo_animation(deck_builder).gif)
+![Deck Builder Demo](img/demo_animation(deck_builder).gif)
 
 **A comprehensive ETL (Extract, Transform, Load) pipeline for language learners.**
 This suite automates the creation of high-quality Anki flashcards from raw video content, combining a **Desktop GUI** for precision work and **CLI tools** for batch processing.
