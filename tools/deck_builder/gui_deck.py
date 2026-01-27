@@ -89,8 +89,28 @@ class AnkiAppDeck(AnkiAppBase):
         clear_videos(self.db_path)
         logger.info("База видео очищена перед импортом")
 
-        input_dir = normalize_path(config.VIDEO_DIR)
+        # --- ИСПРАВЛЕНИЕ: Берем путь из GUI, а не из конфига ---
+        gui_path = self.input_dir.get()
+
+        # Сначала ищем в подпапке 'videos' (стандартная структура)
+        potential_videos_dir = os.path.join(gui_path, "videos")
+
+        if os.path.exists(potential_videos_dir):
+            input_dir = normalize_path(potential_videos_dir)
+            logger.info(f"Найдена подпапка videos: {input_dir}")
+        else:
+            # Если папки videos нет, ищем прямо в корне выбранной папки
+            input_dir = normalize_path(gui_path)
+            logger.info(f"Подпапка videos не найдена, ищем в корне: {input_dir}")
+
+        if not os.path.exists(input_dir):
+            error_msg = f"Папка не найдена: {input_dir}"
+            logger.error(error_msg)
+            messagebox.showerror("Ошибка", error_msg)
+            return
+
         os.makedirs(input_dir, exist_ok=True)
+        # -------------------------------------------------------
         extension = "." + self.video_format.get()
         video_files = [f for f in os.listdir(input_dir) if f.lower().endswith(extension)]
 
