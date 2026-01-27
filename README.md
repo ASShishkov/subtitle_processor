@@ -4,7 +4,13 @@
 ![GUI](https://img.shields.io/badge/GUI-PyQt5-green)
 ![Status](https://img.shields.io/badge/Status-Production-orange)
 
-![Demo Animation](tools/subtitle_extractor/img/demo.gif)
+## 🎥 Demos
+
+### 1. Subtitle Processor (Extraction Logic)
+![Subtitle Extractor Demo](img/demo_animation(subtitle_extractor).gif)
+
+### 2. Deck Builder (Generation Process)
+![Deck Builder Demo](assets/demo_animation(deck_builder).gif)
 
 **A comprehensive ETL (Extract, Transform, Load) pipeline for language learners.**
 This suite automates the creation of high-quality Anki flashcards from raw video content, combining a **Desktop GUI** for precision work and **CLI tools** for batch processing.

@@ -4,7 +4,10 @@
 **Role:** Developer & QA Engineer
 **Stack:** Python 3, **PyQt5** (GUI), **SQLite**, **NLP (pymorphy3)**, `pysrt`, Threading.
 
-![Main Interface](img/interface_main.jpg)
+## 🎥 Demos
+
+### Subtitle Processor (Extraction Logic)
+![Subtitle Extractor Demo](img/demo_animation(subtitle_extractor).gif)
 
 ## 🚀 Project Overview
 This desktop application automates the creation of high-quality Anki flashcards from video content. It acts as an **ETL (Extract, Transform, Load)** pipeline that parses raw subtitles, synchronizes them with learning lists using morphological analysis, and extracts precise media clips.

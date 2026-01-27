@@ -2,6 +2,11 @@
 A powerful GUI tool designed to automate the creation of rich media Anki decks. It streamlines the process of combining text, audio (Google TTS), images, and video clips into ready-to-use `.apkg` files.
 Designed for language learners and educators who need to generate high-quality flashcards in bulk.
 
+## 🎥 Demos
+
+### 2. Deck Builder (Generation Process)
+![Deck Builder Demo](img/demo_animation(deck_builder).gif)
+
 ## ✨ Features
 
 * **GUI Interface:** User-friendly interface built with `tkinter` for easy configuration.

@@ -17,7 +17,7 @@ FREE_LIMIT = 1_000_000
 
 # Настройки Google Cloud TTS
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS", os.path.join(BASE_DIR, "keys/anki-tts-key_2.json"))
+GOOGLE_CREDENTIALS = os.getenv("GOOGLE_CREDENTIALS", os.path.join(BASE_DIR, "keys/anki-tts-key_3.json"))
 
 PROJECT_ID = "anki-tts-456709"
 

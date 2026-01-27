@@ -13,7 +13,7 @@ def get_audio_files(ru_texts, en_texts, use_google_tts):
         ru_path = os.path.join(RU_AUDIO_DIR, f"ru_{(idx + 1):03d}.mp3")
         en_path = os.path.join(EN_AUDIO_DIR, f"en_{(idx + 1):03d}.mp3")
         if use_google_tts:
-            client = texttospeech.TextToSpeechClient.from_service_account_json(os.getenv("GOOGLE_TTS_KEY_PATH", "keys/anki-tts-key_2.json"))
+            client = texttospeech.TextToSpeechClient.from_service_account_json(os.getenv("GOOGLE_TTS_KEY_PATH", "keys/anki-tts-key_3.json"))
             # Русский
             synthesis_input = texttospeech.SynthesisInput(text=ru_texts[idx])
             voice = texttospeech.VoiceSelectionParams(language_code="ru-RU", name="ru-RU-Standard-A")
